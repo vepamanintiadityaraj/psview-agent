@@ -22,6 +22,7 @@ export interface AgentPersonality {
   avoidList: string[]
   signatureTrait: string
   reasoningTrace?: string
+  archetype?: string
 }
 
 export interface OutreachMessage {
@@ -39,6 +40,8 @@ export interface AgentConfig {
   targetRole?: string
   fallback?: boolean
   warning?: string
+  autoRetried?: boolean
+  evalCriteria?: { label: string; pass: boolean }[]
 }
 
 export interface ConversationMessage {

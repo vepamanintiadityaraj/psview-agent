@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import {
-  anthropic,
+  getAnthropic,
   conversationThinking,
   DEFAULT_MODEL,
 } from '@/lib/anthropic'
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        const response = anthropic.messages.stream({
+        const response = getAnthropic().messages.stream({
           model: DEFAULT_MODEL,
           max_tokens: 16_000,
           thinking: conversationThinking,
@@ -90,7 +90,6 @@ export async function POST(req: NextRequest) {
           if (event.type === 'content_block_delta') {
             if (event.delta.type === 'thinking_delta') {
               thoughts += event.delta.thinking
-              send('thinking', { delta: event.delta.thinking })
             }
             if (event.delta.type === 'text_delta') {
               fullText += event.delta.text

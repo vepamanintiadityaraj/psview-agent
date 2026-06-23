@@ -5,8 +5,8 @@ import { AgentConfig } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  ArrowLeft, Play, User, Brain, Briefcase, Building2, MapPin, Users,
-  ChevronDown, ChevronUp, MessageSquare, Shield,
+  ArrowLeft, Play, Brain, Briefcase, Building2, MapPin, Users,
+  ChevronDown, ChevronUp, MessageSquare, Shield, Star, CheckCircle, XCircle,
 } from 'lucide-react'
 import { OUTREACH_MESSAGE_COUNT } from '@/lib/anthropic-models'
 import { cn } from '@/lib/utils'
@@ -19,7 +19,51 @@ interface Props {
 
 type ProfileTab = 'about' | 'outreach' | 'guidelines'
 
-const MESSAGE_PHASES = ['Intro', 'Follow-up', 'Qualify', 'Nudge', 'Close']
+const MESSAGE_TAGS = [
+  { label: 'FIRST TOUCH', cls: 'bg-green-100 text-green-800 border-green-200' },
+  { label: 'FOLLOW-UP',   cls: 'bg-blue-100 text-blue-800 border-blue-200' },
+  { label: 'QUALIFY',     cls: 'bg-amber-100 text-amber-800 border-amber-200' },
+  { label: 'VALUE PITCH', cls: 'bg-purple-100 text-purple-800 border-purple-200' },
+  { label: 'CLOSE',       cls: 'bg-slate-100 text-slate-700 border-slate-200' },
+]
+
+const FLUFF = [
+  'amazing opportunity', 'rockstar', 'cutting-edge', 'excited to share',
+  'ninja', 'guru', 'superstar', 'passionate about', 'unique opportunity', 'dream job',
+]
+
+function computeQualityScore(
+  seq: AgentConfig['messageSequence'],
+  ctx: AgentConfig['companyContext'],
+  role: string | undefined,
+) {
+  const bodies = seq.map(m => m.body.toLowerCase())
+  const subjects = seq.map(m => m.subject)
+  const co = ctx.name.toLowerCase()
+  const roleParts = (role ?? '').toLowerCase().split(' ').filter(w => w.length > 3)
+  return [
+    {
+      label: `All messages reference ${ctx.name} by name`,
+      pass: bodies.every(b => b.includes(co)),
+    },
+    {
+      label: 'No generic recruiter fluff language',
+      pass: bodies.every(b => !FLUFF.some(f => b.includes(f))),
+    },
+    {
+      label: 'Unique subject lines across the sequence',
+      pass: new Set(subjects).size === subjects.length,
+    },
+    {
+      label: 'Each message is concise (50–250 words)',
+      pass: bodies.every(b => { const w = b.trim().split(/\s+/).length; return w >= 50 && w <= 250 }),
+    },
+    {
+      label: role ? `Sequence is tailored to the ${role} role` : 'Messages are role-specific',
+      pass: roleParts.length === 0 || bodies.some(b => roleParts.some(p => b.includes(p))),
+    },
+  ]
+}
 
 function initials(name: string) {
   return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -77,7 +121,19 @@ export default function AgentProfile({ agentConfig, onSimulate, onBack }: Props)
               </Button>
             </div>
 
-            <h1 className="text-2xl font-semibold text-[#191919]">{personality.name}</h1>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <h1 className="text-2xl font-semibold text-[#191919]">{personality.name}</h1>
+              {personality.archetype && (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#0a66c2] text-white">
+                  {personality.archetype}
+                </span>
+              )}
+              {agentConfig.autoRetried && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-800">
+                  ↻ auto-retried
+                </span>
+              )}
+            </div>
             <p className="text-base text-[#191919] mt-0.5 leading-snug">{personality.role}</p>
             <p className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="inline-flex items-center gap-1">
@@ -199,7 +255,14 @@ export default function AgentProfile({ agentConfig, onSimulate, onBack }: Props)
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-sm">{personality.name}</span>
-                          <span className="text-xs text-muted-foreground">· {MESSAGE_PHASES[i] ?? `Msg ${i + 1}`}</span>
+                          {MESSAGE_TAGS[i] && (
+                            <span className={cn(
+                              'text-[10px] font-semibold px-1.5 py-0.5 rounded border',
+                              MESSAGE_TAGS[i].cls,
+                            )}>
+                              {MESSAGE_TAGS[i].label}
+                            </span>
+                          )}
                           <Badge variant="secondary" className="text-[10px] ml-auto">
                             {msg.intent.split(':')[0].trim()}
                           </Badge>
@@ -227,6 +290,46 @@ export default function AgentProfile({ agentConfig, onSimulate, onBack }: Props)
                   </div>
                 )
               })}
+
+              {/* Quality scoring */}
+              {(() => {
+                const criteria = (agentConfig.evalCriteria && agentConfig.evalCriteria.length > 0)
+                  ? agentConfig.evalCriteria
+                  : computeQualityScore(messageSequence, companyContext, targetRole)
+                const passed = criteria.filter(c => c.pass).length
+                const pct = Math.round((passed / criteria.length) * 100)
+                return (
+                  <div className="bg-white rounded-lg border border-border p-5 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold flex items-center gap-2">
+                        <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                        Agent Quality
+                      </h3>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-semibold text-green-600">{passed}/{criteria.length}</span>
+                        <span className="text-xs text-muted-foreground">— {pct}%</span>
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden mb-4">
+                      <div
+                        className="h-full rounded-full bg-green-500 transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <ul className="space-y-2">
+                      {criteria.map((c, j) => (
+                        <li key={j} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          {c.pass
+                            ? <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
+                            : <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                          }
+                          <span>{c.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })()}
 
               <Button onClick={onSimulate} size="lg" className="w-full bg-[#0a66c2] hover:bg-[#004182]">
                 <Play className="w-4 h-4 mr-2" />

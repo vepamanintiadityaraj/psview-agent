@@ -13,6 +13,72 @@ import {
   ArrowLeft, Brain, Send, User, Bot, ChevronDown, ChevronUp,
   Loader2, RotateCcw, MessageSquare, Mail,
 } from 'lucide-react'
+
+const OUTREACH_TAGS = [
+  { label: 'FIRST TOUCH', cls: 'bg-green-100 text-green-800 border-green-200' },
+  { label: 'FOLLOW-UP',   cls: 'bg-blue-100 text-blue-800 border-blue-200' },
+  { label: 'QUALIFY',     cls: 'bg-amber-100 text-amber-800 border-amber-200' },
+  { label: 'VALUE PITCH', cls: 'bg-purple-100 text-purple-800 border-purple-200' },
+  { label: 'CLOSE',       cls: 'bg-slate-100 text-slate-700 border-slate-200' },
+]
+
+const STRATEGY_LABELS: Record<string, string> = {
+  opening:    'Standard mode',
+  engaging:   'Discovery mode',
+  qualifying: 'Deep qualify mode',
+  closing:    'Closing mode',
+}
+
+function CandidateMemoryPanel({
+  warmth, objectionCount, keyConcern, stage, escalationMode,
+}: {
+  warmth: number
+  objectionCount: number
+  keyConcern: string
+  stage: string
+  escalationMode: boolean
+}) {
+  const barColor = warmth >= 67 ? 'bg-green-400' : warmth >= 34 ? 'bg-amber-400' : 'bg-red-400'
+  const strategyLabel = escalationMode
+    ? 'Escalation mode'
+    : (STRATEGY_LABELS[stage] ?? 'Standard mode')
+  return (
+    <div className="panel p-4 space-y-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Candidate Memory
+      </h3>
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs text-muted-foreground">Warmth</span>
+          <span className="text-xs font-semibold">{warmth}%</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className={cn('h-full rounded-full transition-all duration-500', barColor)}
+            style={{ width: `${warmth}%` }}
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Objections</span>
+        <span className="text-xs font-medium">{objectionCount === 0 ? 'None yet' : objectionCount}</span>
+      </div>
+      <div>
+        <p className="text-xs text-muted-foreground mb-1">Key concern</p>
+        <p className="text-xs italic text-foreground/70">{keyConcern || 'not yet identified'}</p>
+      </div>
+      <div className="flex items-center justify-between pt-2 border-t border-border">
+        <span className="text-xs text-muted-foreground">Strategy mode</span>
+        <span className={cn(
+          'text-xs font-medium',
+          escalationMode && 'text-red-600',
+        )}>
+          {strategyLabel}
+        </span>
+      </div>
+    </div>
+  )
+}
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -121,6 +187,11 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
   const [expandedReasoning, setExpandedReasoning] = useState<number | null>(null)
   const [lastSignal, setLastSignal] = useState('')
   const [waitSeconds, setWaitSeconds] = useState<number | null>(null)
+  const [warmth, setWarmth] = useState(50)
+  const [objectionCount, setObjectionCount] = useState(0)
+  const [keyConcern, setKeyConcern] = useState('')
+  const [consecutiveNegatives, setConsecutiveNegatives] = useState(0)
+  const [escalationMode, setEscalationMode] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const resetConversation = useCallback(() => {
@@ -130,6 +201,11 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
     setLastSignal('')
     setExpandedReasoning(null)
     setInput('')
+    setWarmth(50)
+    setObjectionCount(0)
+    setKeyConcern('')
+    setConsecutiveNegatives(0)
+    setEscalationMode(false)
   }, [agentConfig])
 
   useEffect(() => {
@@ -230,6 +306,29 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
       setSentiment(data.sentiment as ConversationMessage['sentiment'])
       setStage(data.stage)
       setLastSignal(data.signalDetected || '')
+      setWarmth(prev => {
+        if (data.sentiment === 'warm' || data.sentiment === 'interested') return Math.min(95, prev + 15)
+        if (data.sentiment === 'cold' || data.sentiment === 'disengaged') return Math.max(5, prev - 20)
+        if (data.responseCategory === 'hostile') return Math.max(5, prev - 30)
+        return prev
+      })
+      if (
+        data.sentiment === 'cold' ||
+        data.responseCategory === 'hostile' ||
+        data.responseCategory === 'unexpected'
+      ) {
+        setObjectionCount(prev => prev + 1)
+      }
+      if (data.candidateRead) setKeyConcern(data.candidateRead)
+
+      // Deterministic escalation rules — pure TypeScript, no LLM call
+      const isNegative = data.sentiment === 'cold' || data.responseCategory === 'hostile'
+      setConsecutiveNegatives(prev => {
+        const next = isNegative ? prev + 1 : 0
+        if (next >= 2) setEscalationMode(true)
+        else if (!isNegative && data.sentiment === 'warm') setEscalationMode(false)
+        return next
+      })
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : 'Failed to generate reply'
       setMessages(prev => {
@@ -316,6 +415,14 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
                   <div className="flex items-center gap-2 mb-2">
                     <Mail className="w-4 h-4 text-muted-foreground" />
                     <span className="text-sm font-medium">Message {i + 1}</span>
+                    {OUTREACH_TAGS[i] && (
+                      <span className={cn(
+                        'text-[10px] font-semibold px-1.5 py-0.5 rounded border',
+                        OUTREACH_TAGS[i].cls,
+                      )}>
+                        {OUTREACH_TAGS[i].label}
+                      </span>
+                    )}
                     <Badge variant="outline" className="ml-auto text-xs">{msg.intent}</Badge>
                   </div>
                   <p className="font-medium mb-2">{msg.subject}</p>
@@ -502,6 +609,13 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
         </div>
 
         <aside className="lg:w-72 shrink-0 space-y-4 hidden lg:block">
+          <CandidateMemoryPanel
+            warmth={warmth}
+            objectionCount={objectionCount}
+            keyConcern={keyConcern}
+            stage={stage}
+            escalationMode={escalationMode}
+          />
           <CompanyContextCard config={agentConfig} />
         </aside>
       </div>

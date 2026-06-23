@@ -78,6 +78,7 @@ export default function CompanyForm({ onComplete }: Props) {
   const [loadingCompany, setLoadingCompany] = useState(false)
   const [loadingAgent, setLoadingAgent] = useState(false)
   const [enriching, setEnriching] = useState(false)
+  const [configStep, setConfigStep] = useState<{ n: number; total: number; label: string } | null>(null)
   const [context, setContext] = useState<CompanyContext>({ ...EMPTY_CONTEXT })
   const [targetRole, setTargetRole] = useState('')
   const [error, setError] = useState('')
@@ -202,23 +203,56 @@ export default function CompanyForm({ onComplete }: Props) {
     }
 
     setLoadingAgent(true)
+    setConfigStep(null)
     setWaitSeconds(null)
     setError('')
     setWarning('')
-    try {
-      const data = await postJsonWithRetry<
-        AgentConfig & { error?: string; fallback?: boolean; warning?: string }
-      >(
-        '/api/configure-agent',
-        { companyContext: context, targetRole, allowFallback: true },
-        setWaitSeconds,
-      )
 
-      if (data.fallback && data.warning) {
-        setWarning(data.warning)
+    try {
+      const res = await fetch('/api/configure-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyContext: context, targetRole, allowFallback: true }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }))
+        throw new Error(err.error || 'Failed to configure agent')
       }
 
-      onComplete(context, { ...data, companyContext: context, targetRole })
+      const reader = res.body?.getReader()
+      if (!reader) throw new Error('No response stream')
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let agentConfig: (AgentConfig & { warning?: string }) | null = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const events = buffer.split('\n\n')
+        buffer = events.pop() ?? ''
+
+        for (const evt of events) {
+          const lines = evt.split('\n')
+          const eventLine = lines.find(l => l.startsWith('event: '))
+          const dataLine = lines.find(l => l.startsWith('data: '))
+          if (!eventLine || !dataLine) continue
+          const type = eventLine.slice(7)
+          const data = JSON.parse(dataLine.slice(6))
+
+          if (type === 'step') setConfigStep(data)
+          if (type === 'done') {
+            if (data.warning) setWarning(data.warning)
+            agentConfig = { ...data, companyContext: context, targetRole }
+          }
+          if (type === 'error') throw new Error(data.message)
+        }
+      }
+
+      if (!agentConfig) throw new Error('No configuration received')
+      onComplete(context, agentConfig)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to configure agent. Please try again.'
       setError(
@@ -228,6 +262,7 @@ export default function CompanyForm({ onComplete }: Props) {
       )
     } finally {
       setLoadingAgent(false)
+      setConfigStep(null)
       setWaitSeconds(null)
     }
   }
@@ -453,9 +488,9 @@ export default function CompanyForm({ onComplete }: Props) {
             {loadingAgent ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                {waitSeconds !== null
-                  ? `Retrying in ${waitSeconds}s…`
-                  : `Configuring agent… ${buildElapsed > 0 ? `(${buildElapsed}s)` : ''}`}
+                {configStep
+                  ? `${configStep.label} (${configStep.n}/${configStep.total})`
+                  : `Configuring… ${buildElapsed > 0 ? `(${buildElapsed}s)` : ''}`}
               </>
             ) : (
               <>
@@ -467,7 +502,7 @@ export default function CompanyForm({ onComplete }: Props) {
 
           {!loadingAgent && (
             <p className="text-center text-xs text-muted-foreground -mt-4">
-              Usually 20–45 seconds — generates persona + {OUTREACH_MESSAGE_COUNT}-message outreach sequence.
+              3-step pipeline: generate → audit → (auto-retry if needed). Usually 25–50s.
             </p>
           )}
 

@@ -129,11 +129,12 @@ export const AGENT_CONFIG_TOOL: Anthropic.Tool = {
           name: { type: 'string' },
           role: { type: 'string' },
           bio: { type: 'string' },
+          archetype: { type: 'string', description: 'Short archetype label for this persona, e.g. "The Technical Collaborator" or "The Culture Champion"' },
           communicationRules: { type: 'array', items: { type: 'string' } },
           avoidList: { type: 'array', items: { type: 'string' } },
           signatureTrait: { type: 'string' },
         },
-        required: ['name', 'role', 'bio', 'communicationRules', 'avoidList', 'signatureTrait'],
+        required: ['name', 'role', 'bio', 'archetype', 'communicationRules', 'avoidList', 'signatureTrait'],
       },
       messageSequence: {
         type: 'array',
