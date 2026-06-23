@@ -4,25 +4,23 @@ import { useState, useEffect } from 'react'
 import { CompanyContext, AgentConfig } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import CompanyDetailsForm from '@/components/CompanyDetailsForm'
+import ManualChatForm from '@/components/ManualChatForm'
 import {
   EMPTY_CONTEXT, DEMO_COMPANIES, mergeCompanyData, canBuildAgent, suggestLinkedInFromWebsite,
 } from '@/lib/company'
 import {
-  Globe, Loader2, ChevronRight, Search, FileText, PenLine, AlertCircle,
+  Globe, Loader2, ChevronRight, PenLine, AlertCircle,
 } from 'lucide-react'
 import { postJsonWithRetry } from '@/lib/fetch-retry'
 import { OUTREACH_MESSAGE_COUNT } from '@/lib/anthropic-models'
 import { cn } from '@/lib/utils'
 
-type EntryMode = 'url' | 'name' | 'describe' | 'manual'
+type EntryMode = 'url' | 'manual'
 
 const ENTRY_MODES: { id: EntryMode; label: string; icon: typeof Globe; hint: string }[] = [
-  { id: 'url', label: 'Website', icon: Globe, hint: 'Research from URL' },
-  { id: 'name', label: 'Search', icon: Search, hint: 'Find by name' },
-  { id: 'describe', label: 'Paste text', icon: FileText, hint: 'Job post or About' },
-  { id: 'manual', label: 'Manual', icon: PenLine, hint: 'Enter yourself' },
+  { id: 'url',    label: 'Website', icon: Globe,    hint: 'Research from URL' },
+  { id: 'manual', label: 'Manual',  icon: PenLine,  hint: 'Enter yourself' },
 ]
 
 interface Props {
@@ -31,18 +29,18 @@ interface Props {
 
 function applyApiResponse(data: Record<string, unknown>, source: CompanyContext['source']): Partial<CompanyContext> {
   return {
-    name: (data.name as string) || '',
-    url: (data.url as string) || '',
-    linkedinUrl: (data.linkedinUrl as string) || '',
-    description: (data.description as string) || '',
-    industry: (data.industry as string) || '',
-    culture: (data.culture as string[]) || [],
-    values: (data.values as string[]) || [],
-    rolesHired: (data.rolesHired as string[]) || [],
-    tone: (data.suggestedTone as number) ?? 50,
-    mission: (data.mission as string) || '',
-    companySize: (data.companySize as string) || '',
-    hiringIntent: (data.hiringIntent as string) || '',
+    name:        (data.name        as string)   || '',
+    url:         (data.url         as string)   || '',
+    linkedinUrl: (data.linkedinUrl as string)   || '',
+    description: (data.description as string)   || '',
+    industry:    (data.industry    as string)   || '',
+    culture:     (data.culture     as string[]) || [],
+    values:      (data.values      as string[]) || [],
+    rolesHired:  (data.rolesHired  as string[]) || [],
+    tone:        (data.suggestedTone as number) ?? 50,
+    mission:     (data.mission     as string)   || '',
+    companySize: (data.companySize as string)   || '',
+    hiringIntent:(data.hiringIntent as string)  || '',
     source,
   }
 }
@@ -50,17 +48,9 @@ function applyApiResponse(data: Record<string, unknown>, source: CompanyContext[
 function buildResearchWarnings(data: Record<string, unknown>): string {
   const needs = (data.needsManualInput as string[] | undefined) ?? []
   const parts: string[] = []
-
-  if (needs.includes('culture')) {
-    parts.push('Culture was not found on the website — please add traits manually below.')
-  }
-  if (needs.includes('values')) {
-    parts.push('Values were not found on the website — please add them manually below.')
-  }
-  if (!(data.rolesHired as string[] | undefined)?.length) {
-    parts.push('No open roles found on their careers page — pick a target role below.')
-  }
-
+  if (needs.includes('culture')) parts.push('Culture was not found on the website — AI suggestions have been loaded below.')
+  if (needs.includes('values'))  parts.push('Values were not found on the website — AI suggestions have been loaded below.')
+  if (!(data.rolesHired as string[] | undefined)?.length) parts.push('No open roles found — pick a target role below.')
   return parts.join(' ')
 }
 
@@ -70,28 +60,21 @@ export default function CompanyForm({ onComplete }: Props) {
 
   const [url, setUrl] = useState('')
   const [linkedinUrl, setLinkedinUrl] = useState('')
-  const [companyName, setCompanyName] = useState('')
-  const [industryHint, setIndustryHint] = useState('')
-  const [locationHint, setLocationHint] = useState('')
-  const [pastedText, setPastedText] = useState('')
 
   const [loadingCompany, setLoadingCompany] = useState(false)
-  const [loadingAgent, setLoadingAgent] = useState(false)
-  const [enriching, setEnriching] = useState(false)
+  const [loadingAgent, setLoadingAgent]   = useState(false)
+  const [enriching, setEnriching]         = useState(false)
   const [configStep, setConfigStep] = useState<{ n: number; total: number; label: string } | null>(null)
-  const [context, setContext] = useState<CompanyContext>({ ...EMPTY_CONTEXT })
+  const [context, setContext]   = useState<CompanyContext>({ ...EMPTY_CONTEXT })
   const [targetRole, setTargetRole] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError]     = useState('')
   const [warning, setWarning] = useState('')
   const [needsManualInput, setNeedsManualInput] = useState<string[]>([])
   const [waitSeconds, setWaitSeconds] = useState<number | null>(null)
   const [buildElapsed, setBuildElapsed] = useState(0)
 
   useEffect(() => {
-    if (!loadingAgent) {
-      setBuildElapsed(0)
-      return
-    }
+    if (!loadingAgent) { setBuildElapsed(0); return }
     const start = Date.now()
     const id = setInterval(() => setBuildElapsed(Math.floor((Date.now() - start) / 1000)), 1000)
     return () => clearInterval(id)
@@ -109,9 +92,13 @@ export default function CompanyForm({ onComplete }: Props) {
         payload,
         setWaitSeconds,
       )
-
       const source = (payload.mode as CompanyContext['source']) ?? 'url'
-      setContext(prev => mergeCompanyData(prev, applyApiResponse(data, source)))
+      const apiResult = applyApiResponse(data, source)
+      // Preserve the linkedin URL we sent if API doesn't return one
+      setContext(prev => mergeCompanyData(prev, {
+        ...apiResult,
+        linkedinUrl: (apiResult.linkedinUrl as string) || linkedinUrl.trim() || prev.linkedinUrl,
+      }))
       setNeedsManualInput((data.needsManualInput as string[]) ?? [])
 
       const roles = (data.rolesHired as string[] | undefined) ?? []
@@ -137,33 +124,7 @@ export default function CompanyForm({ onComplete }: Props) {
 
   function handleUrlAnalyze() {
     if (!url.trim() || !linkedinUrl.trim()) return
-    researchCompany({
-      mode: 'url',
-      url: url.trim(),
-      linkedinUrl: linkedinUrl.trim(),
-    })
-  }
-
-  function handleNameSearch() {
-    if (!companyName.trim() || !linkedinUrl.trim()) return
-    researchCompany({
-      mode: 'name',
-      companyName: companyName.trim(),
-      industry: industryHint.trim() || undefined,
-      location: locationHint.trim() || undefined,
-      linkedinUrl: linkedinUrl.trim(),
-    })
-  }
-
-  function handleDescribeExtract() {
-    researchCompany({ mode: 'describe', text: pastedText })
-  }
-
-  function startManual() {
-    setError('')
-    setWarning('')
-    setContext({ ...EMPTY_CONTEXT, source: 'manual' })
-    setShowForm(true)
+    researchCompany({ mode: 'url', url: url.trim(), linkedinUrl: linkedinUrl.trim() })
   }
 
   async function enrichManual() {
@@ -197,10 +158,7 @@ export default function CompanyForm({ onComplete }: Props) {
 
   async function buildAgent() {
     const check = canBuildAgent(context, targetRole)
-    if (!check.ok) {
-      setError(`Missing: ${check.missing.join(', ')}`)
-      return
-    }
+    if (!check.ok) { setError(`Missing: ${check.missing.join(', ')}`); return }
 
     setLoadingAgent(true)
     setConfigStep(null)
@@ -237,11 +195,10 @@ export default function CompanyForm({ onComplete }: Props) {
         for (const evt of events) {
           const lines = evt.split('\n')
           const eventLine = lines.find(l => l.startsWith('event: '))
-          const dataLine = lines.find(l => l.startsWith('data: '))
+          const dataLine  = lines.find(l => l.startsWith('data: '))
           if (!eventLine || !dataLine) continue
           const type = eventLine.slice(7)
           const data = JSON.parse(dataLine.slice(6))
-
           if (type === 'step') setConfigStep(data)
           if (type === 'done') {
             if (data.warning) setWarning(data.warning)
@@ -279,11 +236,15 @@ export default function CompanyForm({ onComplete }: Props) {
     setEntryMode(mode)
     setError('')
     setWarning('')
-    if (mode === 'manual') {
-      startManual()
-    } else {
-      setShowForm(false)
-    }
+    setShowForm(false)
+    setContext({ ...EMPTY_CONTEXT })
+    setTargetRole('')
+  }
+
+  function handleManualDone(ctx: CompanyContext, role: string) {
+    setContext(ctx)
+    setTargetRole(role)
+    setShowForm(true)
   }
 
   const buildCheck = canBuildAgent(context, targetRole)
@@ -302,7 +263,7 @@ export default function CompanyForm({ onComplete }: Props) {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
+      <div className="grid grid-cols-2 gap-2 mb-6">
         {ENTRY_MODES.map(({ id, label, icon: Icon, hint }) => (
           <button
             key={id}
@@ -324,141 +285,70 @@ export default function CompanyForm({ onComplete }: Props) {
         ))}
       </div>
 
-      {!(entryMode === 'manual' && showForm) && (
+      {/* URL mode input panel */}
+      {entryMode === 'url' && !showForm && (
         <div className="panel p-6 mb-6">
-          {entryMode === 'url' && (
-            <>
-              <label className="text-sm font-medium mb-3 block">Company website</label>
-              <div className="flex gap-2 mb-4">
-                <Input
-                  placeholder="stripe.com"
-                  value={url}
-                  onChange={e => {
-                    const v = e.target.value
-                    setUrl(v)
-                    if (!linkedinUrl.trim()) {
-                      const suggested = suggestLinkedInFromWebsite(v)
-                      if (suggested) setLinkedinUrl(suggested)
-                    }
-                  }}
-                  onKeyDown={e => e.key === 'Enter' && handleUrlAnalyze()}
-                />
-                <Button
-                  onClick={handleUrlAnalyze}
-                  disabled={!url.trim() || !linkedinUrl.trim() || loadingCompany}
-                  className="shrink-0"
-                >
-                  {loadingCompany ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Analyze'}
-                </Button>
-              </div>
+          <label className="text-sm font-medium mb-3 block">Company website</label>
+          <div className="flex gap-2 mb-4">
+            <Input
+              placeholder="stripe.com"
+              value={url}
+              onChange={e => {
+                const v = e.target.value
+                setUrl(v)
+                if (!linkedinUrl.trim()) {
+                  const suggested = suggestLinkedInFromWebsite(v)
+                  if (suggested) setLinkedinUrl(suggested)
+                }
+              }}
+              onKeyDown={e => e.key === 'Enter' && handleUrlAnalyze()}
+            />
+            <Button
+              onClick={handleUrlAnalyze}
+              disabled={!url.trim() || !linkedinUrl.trim() || loadingCompany}
+              className="shrink-0"
+            >
+              {loadingCompany ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Analyze'}
+            </Button>
+          </div>
 
-              <label className="text-sm font-medium mb-2 block">
-                LinkedIn company page *
-              </label>
-              <Input
-                placeholder="linkedin.com/company/stripe"
-                value={linkedinUrl}
-                onChange={e => setLinkedinUrl(e.target.value)}
-                className="mb-4"
-              />
+          <label className="text-sm font-medium mb-2 block">LinkedIn company page *</label>
+          <Input
+            placeholder="linkedin.com/company/stripe"
+            value={linkedinUrl}
+            onChange={e => setLinkedinUrl(e.target.value)}
+            className="mb-4"
+          />
 
-              {loadingCompany && waitSeconds !== null && (
-                <p className="text-sm text-muted-foreground mb-3">Retrying in {waitSeconds}s…</p>
-              )}
-              <p className="text-sm text-muted-foreground mb-4">
-                Website + LinkedIn are both researched every time (size, About, culture/values when explicitly listed).
-                If culture or values aren&apos;t on either source, you&apos;ll add them manually.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {DEMO_COMPANIES.map(demo => (
-                  <Button
-                    key={demo.url}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => loadDemo(demo)}
-                    disabled={loadingCompany}
-                    title={demo.hint}
-                  >
-                    {demo.label}
-                  </Button>
-                ))}
-              </div>
-            </>
+          {loadingCompany && waitSeconds !== null && (
+            <p className="text-sm text-muted-foreground mb-3">Retrying in {waitSeconds}s…</p>
           )}
-
-          {entryMode === 'name' && (
-            <>
-              <label className="text-sm font-medium mb-3 block">Company name</label>
-              <Input
-                placeholder="e.g. Anthropic, Stripe"
-                value={companyName}
-                onChange={e => setCompanyName(e.target.value)}
-                className="mb-3"
-              />
-              <label className="text-sm font-medium mb-2 block">LinkedIn company page *</label>
-              <Input
-                placeholder="linkedin.com/company/..."
-                value={linkedinUrl}
-                onChange={e => setLinkedinUrl(e.target.value)}
-                className="mb-3"
-              />
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <Input
-                  placeholder="Industry (optional)"
-                  value={industryHint}
-                  onChange={e => setIndustryHint(e.target.value)}
-                />
-                <Input
-                  placeholder="Location (optional)"
-                  value={locationHint}
-                  onChange={e => setLocationHint(e.target.value)}
-                />
-              </div>
+          <p className="text-sm text-muted-foreground mb-4">
+            Website + LinkedIn are both researched for size, culture, and values. If culture or values
+            aren&apos;t found on either source, AI suggestions load automatically.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {DEMO_COMPANIES.map(demo => (
               <Button
-                onClick={handleNameSearch}
-                disabled={!companyName.trim() || !linkedinUrl.trim() || loadingCompany}
-                className="w-full"
+                key={demo.url}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => loadDemo(demo)}
+                disabled={loadingCompany}
+                title={demo.hint}
               >
-                {loadingCompany ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Search className="w-4 h-4 mr-2" />}
-                Research company
+                {demo.label}
               </Button>
-            </>
-          )}
+            ))}
+          </div>
+        </div>
+      )}
 
-          {entryMode === 'describe' && (
-            <>
-              <label className="text-sm font-medium mb-3 block">Paste company information</label>
-              <Textarea
-                placeholder="Job description, LinkedIn About, pitch deck excerpt…"
-                value={pastedText}
-                onChange={e => setPastedText(e.target.value)}
-                className="resize-none mb-2"
-                rows={6}
-              />
-              <p className="text-sm text-muted-foreground mb-3">{pastedText.length}/40 min characters</p>
-              <Button
-                onClick={handleDescribeExtract}
-                disabled={pastedText.trim().length < 40 || loadingCompany}
-                className="w-full"
-              >
-                {loadingCompany ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FileText className="w-4 h-4 mr-2" />}
-                Extract profile
-              </Button>
-            </>
-          )}
-
-          {entryMode === 'manual' && !showForm && (
-            <>
-              <p className="text-sm text-muted-foreground mb-4">
-                Fill in the company profile manually. You can use AI to suggest missing fields later.
-              </p>
-              <Button onClick={startManual} className="w-full">
-                <PenLine className="w-4 h-4 mr-2" />
-                Start manual entry
-              </Button>
-            </>
-          )}
+      {/* Manual mode — chat onboarding */}
+      {entryMode === 'manual' && !showForm && (
+        <div className="mb-6">
+          <ManualChatForm onDone={handleManualDone} />
         </div>
       )}
 
@@ -502,7 +392,7 @@ export default function CompanyForm({ onComplete }: Props) {
 
           {!loadingAgent && (
             <p className="text-center text-xs text-muted-foreground -mt-4">
-              3-step pipeline: generate → audit → (auto-retry if needed). Usually 25–50s.
+              Generate → audit → auto-retry if needed. Usually 25–50s.
             </p>
           )}
 

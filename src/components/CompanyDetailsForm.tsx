@@ -8,10 +8,10 @@ import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import {
   CULTURE_SUGGESTIONS, VALUE_SUGGESTIONS, ROLE_SUGGESTIONS,
-  COMPANY_SIZE_OPTIONS, TONE_LABELS, toneLabel,
+  TONE_LABELS, toneLabel,
 } from '@/lib/company'
-import { Building2, Plus, X, Target, Sparkles, AlertCircle } from 'lucide-react'
-import { useState } from 'react'
+import { Building2, Plus, X, Target, Sparkles, AlertCircle, Loader2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -22,14 +22,8 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 function TagButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
+  active, onClick, children,
+}: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
@@ -58,7 +52,7 @@ interface Props {
 
 function ManualEntryBanner({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-2 p-3 mb-4 rounded-md border border-amber-200 bg-amber-50 text-sm text-amber-900">
+    <div className="flex items-start gap-2 p-3 mb-3 rounded-md border border-amber-200 bg-amber-50 text-sm text-amber-900">
       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
       <span>{children}</span>
     </div>
@@ -75,9 +69,36 @@ export default function CompanyDetailsForm({
   enriching,
 }: Props) {
   const [customCulture, setCustomCulture] = useState('')
-  const [customValue, setCustomValue] = useState('')
-  const [customRole, setCustomRole] = useState('')
+  const [customValue, setCustomValue]   = useState('')
+  const [customRole, setCustomRole]     = useState('')
   const [customHiredRole, setCustomHiredRole] = useState('')
+
+  // AI suggestions for missing culture/values
+  const [aiSuggestions, setAiSuggestions] = useState<{ culture: string[]; values: string[] } | null>(null)
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
+  const fetchedRef = useRef(false)
+
+  useEffect(() => {
+    if (!fetchedRef.current && needsManualInput.length > 0 && context.description.trim()) {
+      fetchedRef.current = true
+      fetchSuggestions()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function fetchSuggestions() {
+    setLoadingSuggestions(true)
+    try {
+      const res = await fetch('/api/suggest-culture-values', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyContext: context }),
+      })
+      if (res.ok) setAiSuggestions(await res.json())
+    } catch { /* ignore */ } finally {
+      setLoadingSuggestions(false)
+    }
+  }
 
   function toggleCulture(tag: string) {
     setContext(c => ({
@@ -105,10 +126,15 @@ export default function CompanyDetailsForm({
   const toneIndex = Math.min(4, Math.floor(context.tone / 20))
   const hiredRoleOptions = [...new Set([...ROLE_SUGGESTIONS, ...context.rolesHired])]
   const needsCulture = needsManualInput.includes('culture') && context.culture.length === 0
-  const needsValues = needsManualInput.includes('values') && context.values.length === 0
+  const needsValues  = needsManualInput.includes('values')  && context.values.length === 0
+
+  // AI suggestion chips not yet toggled into context
+  const suggestedCulture = aiSuggestions?.culture.filter(s => !CULTURE_SUGGESTIONS.includes(s)) ?? []
+  const suggestedValues  = aiSuggestions?.values.filter(s => !VALUE_SUGGESTIONS.includes(s)) ?? []
 
   return (
     <div className="space-y-6">
+      {/* Company profile */}
       <div className="panel p-6 space-y-4">
         <div className="flex items-center gap-2">
           <Building2 className="w-4 h-4 text-muted-foreground" />
@@ -123,30 +149,18 @@ export default function CompanyDetailsForm({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-sm text-muted-foreground mb-1.5 block">Name *</label>
-            <Input
-              value={context.name}
-              onChange={e => setContext(c => ({ ...c, name: e.target.value }))}
-              placeholder="Acme Corp"
-            />
+            <Input value={context.name} onChange={e => setContext(c => ({ ...c, name: e.target.value }))} placeholder="Acme Corp" />
           </div>
           <div>
             <label className="text-sm text-muted-foreground mb-1.5 block">Industry *</label>
-            <Input
-              value={context.industry}
-              onChange={e => setContext(c => ({ ...c, industry: e.target.value }))}
-              placeholder="e.g. HR Tech"
-            />
+            <Input value={context.industry} onChange={e => setContext(c => ({ ...c, industry: e.target.value }))} placeholder="e.g. HR Tech" />
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-sm text-muted-foreground mb-1.5 block">Website</label>
-            <Input
-              value={context.url}
-              onChange={e => setContext(c => ({ ...c, url: e.target.value }))}
-              placeholder="https://company.com"
-            />
+            <Input value={context.url} onChange={e => setContext(c => ({ ...c, url: e.target.value }))} placeholder="https://company.com" />
           </div>
           <div>
             <label className="text-sm text-muted-foreground mb-1.5 block">LinkedIn *</label>
@@ -158,24 +172,33 @@ export default function CompanyDetailsForm({
           </div>
         </div>
 
+        {/* Company size */}
         <div>
           <label className="text-sm text-muted-foreground mb-1.5 block">Company size</label>
-          {context.companySize && (
-            <p className="text-xs text-muted-foreground mb-2">
-              From research: {context.companySize}
-            </p>
-          )}
-          <div className="flex flex-wrap gap-1.5">
-            {COMPANY_SIZE_OPTIONS.map(size => (
-              <TagButton
-                key={size}
-                active={context.companySize === size}
-                onClick={() => setContext(c => ({ ...c, companySize: c.companySize === size ? '' : size }))}
+          {context.companySize ? (
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">{context.companySize}</Badge>
+              <button
+                type="button"
+                onClick={() => setContext(c => ({ ...c, companySize: '' }))}
+                className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
               >
-                {size}
-              </TagButton>
-            ))}
-          </div>
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {(['1–10', '11–50', '51–200', '201–1000', '1000+'] as const).map(size => (
+                <TagButton
+                  key={size}
+                  active={context.companySize === size}
+                  onClick={() => setContext(c => ({ ...c, companySize: c.companySize === size ? '' : size }))}
+                >
+                  {size}
+                </TagButton>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>
@@ -201,129 +224,131 @@ export default function CompanyDetailsForm({
         </div>
 
         {onEnrich && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onEnrich}
-            disabled={enriching || !context.name || !context.description}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={onEnrich} disabled={enriching || !context.name || !context.description}>
             <Sparkles className="w-3.5 h-3.5 mr-1.5" />
             {enriching ? 'Suggesting…' : 'AI suggest missing fields'}
           </Button>
         )}
       </div>
 
-      <div className="panel p-6">
-        <label className="text-sm font-medium mb-1 block">Culture *</label>
-        <p className="text-sm text-muted-foreground mb-3">How it feels to work there</p>
-        {needsCulture && (
-          <ManualEntryBanner>
-            Not found on the company website — add culture traits manually.
-          </ManualEntryBanner>
-        )}
-        <div className="flex flex-wrap gap-2 mb-3">
-          {CULTURE_SUGGESTIONS.map(tag => (
-            <TagButton key={tag} active={context.culture.includes(tag)} onClick={() => toggleCulture(tag)}>
-              {tag}
-            </TagButton>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <Input
-            placeholder="Add custom trait…"
-            value={customCulture}
-            onChange={e => setCustomCulture(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && customCulture.trim()) {
-                setContext(c => ({ ...c, culture: [...c.culture, customCulture.trim()] }))
-                setCustomCulture('')
+      {/* Culture & Values — merged panel */}
+      <div className="panel p-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="text-sm font-medium block">Culture &amp; Values</label>
+            <p className="text-sm text-muted-foreground mt-0.5">How it feels to work there and what the company stands for</p>
+          </div>
+          {(needsCulture || needsValues) && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {loadingSuggestions
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> Loading AI suggestions…</>
+                : aiSuggestions
+                  ? <span className="text-green-700">AI suggestions loaded</span>
+                  : <button type="button" onClick={fetchSuggestions} className="underline underline-offset-2 hover:text-foreground">Get AI suggestions</button>
               }
-            }}
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => {
+            </div>
+          )}
+        </div>
+
+        {/* Culture section */}
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Culture traits *</p>
+          {needsCulture && <ManualEntryBanner>Not found on the website — add traits or use the AI suggestions below.</ManualEntryBanner>}
+          <div className="flex flex-wrap gap-2 mb-2">
+            {CULTURE_SUGGESTIONS.map(tag => (
+              <TagButton key={tag} active={context.culture.includes(tag)} onClick={() => toggleCulture(tag)}>
+                {tag}
+              </TagButton>
+            ))}
+            {suggestedCulture.map(tag => (
+              <TagButton key={tag} active={context.culture.includes(tag)} onClick={() => toggleCulture(tag)}>
+                <span className="text-amber-600 mr-0.5">✦</span>{tag}
+              </TagButton>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Add custom trait…"
+              value={customCulture}
+              onChange={e => setCustomCulture(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && customCulture.trim()) {
+                  setContext(c => ({ ...c, culture: [...c.culture, customCulture.trim()] }))
+                  setCustomCulture('')
+                }
+              }}
+            />
+            <Button type="button" size="sm" variant="outline" onClick={() => {
               if (customCulture.trim()) {
                 setContext(c => ({ ...c, culture: [...c.culture, customCulture.trim()] }))
                 setCustomCulture('')
               }
-            }}
-          >
-            <Plus className="w-3 h-3" />
-          </Button>
+            }}><Plus className="w-3 h-3" /></Button>
+          </div>
+          {context.culture.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {context.culture.map(tag => (
+                <Badge key={tag} variant="secondary" className="gap-1 pr-1">
+                  {tag}
+                  <button type="button" onClick={() => toggleCulture(tag)} className="ml-1 hover:text-destructive">
+                    <X className="w-3 h-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
-        {context.culture.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {context.culture.map(tag => (
-              <Badge key={tag} variant="secondary" className="gap-1 pr-1">
+
+        <div className="border-t border-border pt-6">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Company values *</p>
+          {needsValues && <ManualEntryBanner>Not found on the website — add values or use the AI suggestions below.</ManualEntryBanner>}
+          <div className="flex flex-wrap gap-2 mb-2">
+            {VALUE_SUGGESTIONS.map(tag => (
+              <TagButton key={tag} active={context.values.includes(tag)} onClick={() => toggleValue(tag)}>
                 {tag}
-                <button type="button" onClick={() => toggleCulture(tag)} className="ml-1 hover:text-destructive">
-                  <X className="w-3 h-3" />
-                </button>
-              </Badge>
+              </TagButton>
+            ))}
+            {suggestedValues.map(tag => (
+              <TagButton key={tag} active={context.values.includes(tag)} onClick={() => toggleValue(tag)}>
+                <span className="text-amber-600 mr-0.5">✦</span>{tag}
+              </TagButton>
             ))}
           </div>
-        )}
-      </div>
-
-      <div className="panel p-6">
-        <label className="text-sm font-medium mb-1 block">Values *</label>
-        <p className="text-sm text-muted-foreground mb-3">What the company stands for</p>
-        {needsValues && (
-          <ManualEntryBanner>
-            Not found on the company website — add company values manually.
-          </ManualEntryBanner>
-        )}
-        <div className="flex flex-wrap gap-2 mb-3">
-          {VALUE_SUGGESTIONS.map(tag => (
-            <TagButton key={tag} active={context.values.includes(tag)} onClick={() => toggleValue(tag)}>
-              {tag}
-            </TagButton>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <Input
-            placeholder="Add custom value…"
-            value={customValue}
-            onChange={e => setCustomValue(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && customValue.trim()) {
-                setContext(c => ({ ...c, values: [...c.values, customValue.trim()] }))
-                setCustomValue('')
-              }
-            }}
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => {
+          <div className="flex gap-2">
+            <Input
+              placeholder="Add custom value…"
+              value={customValue}
+              onChange={e => setCustomValue(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && customValue.trim()) {
+                  setContext(c => ({ ...c, values: [...c.values, customValue.trim()] }))
+                  setCustomValue('')
+                }
+              }}
+            />
+            <Button type="button" size="sm" variant="outline" onClick={() => {
               if (customValue.trim()) {
                 setContext(c => ({ ...c, values: [...c.values, customValue.trim()] }))
                 setCustomValue('')
               }
-            }}
-          >
-            <Plus className="w-3 h-3" />
-          </Button>
-        </div>
-        {context.values.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {context.values.map(tag => (
-              <Badge key={tag} variant="secondary" className="gap-1 pr-1">
-                {tag}
-                <button type="button" onClick={() => toggleValue(tag)} className="ml-1 hover:text-destructive">
-                  <X className="w-3 h-3" />
-                </button>
-              </Badge>
-            ))}
+            }}><Plus className="w-3 h-3" /></Button>
           </div>
-        )}
+          {context.values.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {context.values.map(tag => (
+                <Badge key={tag} variant="secondary" className="gap-1 pr-1">
+                  {tag}
+                  <button type="button" onClick={() => toggleValue(tag)} className="ml-1 hover:text-destructive">
+                    <X className="w-3 h-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* Tone */}
       <div className="panel p-6">
         <div className="flex items-center justify-between mb-4">
           <label className="text-sm font-medium">Communication tone</label>
@@ -332,9 +357,7 @@ export default function CompanyDetailsForm({
         <Slider
           value={[context.tone]}
           onValueChange={(val) => setContext(c => ({ ...c, tone: Array.isArray(val) ? val[0] : val }))}
-          min={0}
-          max={100}
-          step={5}
+          min={0} max={100} step={5}
           className="mb-2"
         />
         <div className="flex justify-between text-xs text-muted-foreground">
@@ -343,19 +366,14 @@ export default function CompanyDetailsForm({
         </div>
       </div>
 
+      {/* Roles */}
       <div className="panel p-6 space-y-6">
         <div>
           <label className="text-sm font-medium mb-1 block">Roles they hire</label>
-          <p className="text-sm text-muted-foreground mb-3">
-            Optional context — roles seen on their careers page. Select all that apply.
-          </p>
+          <p className="text-sm text-muted-foreground mb-3">Optional context — roles seen on their careers page.</p>
           <div className="flex flex-wrap gap-2 mb-3">
             {hiredRoleOptions.map(role => (
-              <TagButton
-                key={role}
-                active={context.rolesHired.includes(role)}
-                onClick={() => toggleHiredRole(role)}
-              >
+              <TagButton key={role} active={context.rolesHired.includes(role)} onClick={() => toggleHiredRole(role)}>
                 {role}
               </TagButton>
             ))}
@@ -372,19 +390,9 @@ export default function CompanyDetailsForm({
                 }
               }}
             />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                if (customHiredRole.trim()) {
-                  toggleHiredRole(customHiredRole.trim())
-                  setCustomHiredRole('')
-                }
-              }}
-            >
-              <Plus className="w-3 h-3" />
-            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => {
+              if (customHiredRole.trim()) { toggleHiredRole(customHiredRole.trim()); setCustomHiredRole('') }
+            }}><Plus className="w-3 h-3" /></Button>
           </div>
         </div>
 
@@ -409,25 +417,12 @@ export default function CompanyDetailsForm({
               value={customRole}
               onChange={e => setCustomRole(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter' && customRole.trim()) {
-                  setTargetRole(customRole.trim())
-                  setCustomRole('')
-                }
+                if (e.key === 'Enter' && customRole.trim()) { setTargetRole(customRole.trim()); setCustomRole('') }
               }}
             />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                if (customRole.trim()) {
-                  setTargetRole(customRole.trim())
-                  setCustomRole('')
-                }
-              }}
-            >
-              Set
-            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => {
+              if (customRole.trim()) { setTargetRole(customRole.trim()); setCustomRole('') }
+            }}>Set</Button>
           </div>
 
           <label className="text-sm text-muted-foreground mb-1.5 block">Hiring intent (optional)</label>

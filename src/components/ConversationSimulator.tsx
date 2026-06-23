@@ -269,6 +269,11 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
   // Candidate persona
   const [persona, setPersona] = useState<CandidatePersona | null>(null)
   const [generatingPersona, setGeneratingPersona] = useState(false)
+  const [showPersonaForm, setShowPersonaForm] = useState(false)
+  const [personaForm, setPersonaForm] = useState({
+    name: '', currentRole: '', currentCompany: '', background: '',
+    tone: 'direct' as CandidatePersona['tone'], concerns: '',
+  })
   // Handoff brief
   const [handoffBrief, setHandoffBrief] = useState<string | null>(null)
   const [generatingBrief, setGeneratingBrief] = useState(false)
@@ -775,47 +780,130 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
                 <UserCircle className="w-3.5 h-3.5" />
                 Candidate
               </h3>
-              {!persona && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={generatePersona}
-                  disabled={generatingPersona}
-                  className="h-6 text-[11px] px-2"
-                >
-                  {generatingPersona ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Generate'}
-                </Button>
+              {persona && !showPersonaForm && (
+                <div className="flex gap-1">
+                  <button type="button" onClick={() => { setPersona(null); setShowPersonaForm(false) }}
+                    className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2">
+                    Clear
+                  </button>
+                </div>
               )}
             </div>
-            {persona ? (
+
+            {/* No persona yet — show two options */}
+            {!persona && !showPersonaForm && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground italic leading-relaxed mb-3">
+                  Add a candidate profile to make the roleplay more realistic.
+                </p>
+                <Button size="sm" variant="outline" onClick={generatePersona} disabled={generatingPersona} className="w-full h-7 text-xs">
+                  {generatingPersona ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" /> : null}
+                  {generatingPersona ? 'Generating…' : 'Generate random'}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowPersonaForm(true)} className="w-full h-7 text-xs">
+                  Enter details
+                </Button>
+              </div>
+            )}
+
+            {/* Manual persona form */}
+            {!persona && showPersonaForm && (
+              <div className="space-y-2">
+                <input
+                  className="w-full text-xs border border-border rounded-md px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20"
+                  placeholder="Name (e.g. Sarah Chen)"
+                  value={personaForm.name}
+                  onChange={e => setPersonaForm(f => ({ ...f, name: e.target.value }))}
+                />
+                <input
+                  className="w-full text-xs border border-border rounded-md px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20"
+                  placeholder="Current role (e.g. Senior SWE)"
+                  value={personaForm.currentRole}
+                  onChange={e => setPersonaForm(f => ({ ...f, currentRole: e.target.value }))}
+                />
+                <input
+                  className="w-full text-xs border border-border rounded-md px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20"
+                  placeholder="Current company (e.g. Stripe)"
+                  value={personaForm.currentCompany}
+                  onChange={e => setPersonaForm(f => ({ ...f, currentCompany: e.target.value }))}
+                />
+                <textarea
+                  className="w-full text-xs border border-border rounded-md px-2 py-1.5 bg-background resize-none focus:outline-none focus:ring-1 focus:ring-foreground/20"
+                  placeholder="Background (optional)"
+                  rows={2}
+                  value={personaForm.background}
+                  onChange={e => setPersonaForm(f => ({ ...f, background: e.target.value }))}
+                />
+                <input
+                  className="w-full text-xs border border-border rounded-md px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20"
+                  placeholder="Concerns, comma-separated (optional)"
+                  value={personaForm.concerns}
+                  onChange={e => setPersonaForm(f => ({ ...f, concerns: e.target.value }))}
+                />
+                <select
+                  className="w-full text-xs border border-border rounded-md px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20"
+                  value={personaForm.tone}
+                  onChange={e => setPersonaForm(f => ({ ...f, tone: e.target.value as CandidatePersona['tone'] }))}
+                >
+                  {(['direct', 'skeptical', 'friendly', 'busy', 'curious'] as const).map(t => (
+                    <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                  ))}
+                </select>
+                <div className="flex gap-1.5 pt-1">
+                  <Button size="sm" variant="outline" onClick={() => setShowPersonaForm(false)} className="flex-1 h-6 text-[11px]">
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setPersona({
+                        name: personaForm.name || 'Alex',
+                        currentRole: personaForm.currentRole || 'Software Engineer',
+                        currentCompany: personaForm.currentCompany || 'Current company',
+                        background: personaForm.background || `${personaForm.name || 'Alex'} is a ${personaForm.currentRole || 'Software Engineer'}.`,
+                        tone: personaForm.tone,
+                        likelyConcerns: personaForm.concerns.split(',').map(s => s.trim()).filter(Boolean),
+                      })
+                      setShowPersonaForm(false)
+                    }}
+                    className="flex-1 h-6 text-[11px]"
+                  >
+                    Save
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Persona display */}
+            {persona && (
               <div className="space-y-2">
                 <div>
                   <p className="text-sm font-medium">{persona.name}</p>
                   <p className="text-xs text-muted-foreground">{persona.currentRole} · {persona.currentCompany}</p>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">{persona.background}</p>
-                <div className="flex flex-wrap gap-1 pt-1">
-                  {persona.likelyConcerns.map((c, i) => (
-                    <Badge key={i} variant="secondary" className="text-[10px] whitespace-normal break-words max-w-full">{c}</Badge>
-                  ))}
-                </div>
+                {persona.likelyConcerns.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {persona.likelyConcerns.map((c, i) => (
+                      <Badge key={i} variant="secondary" className="text-[10px] whitespace-normal break-words max-w-full">{c}</Badge>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-center justify-between pt-1">
                   <span className="text-xs text-muted-foreground">Tone</span>
                   <Badge variant="outline" className="text-[10px] capitalize">{persona.tone}</Badge>
                 </div>
-                <button
-                  type="button"
-                  onClick={generatePersona}
-                  disabled={generatingPersona}
-                  className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 mt-1 disabled:opacity-50"
-                >
-                  {generatingPersona ? 'Regenerating…' : 'Regenerate'}
-                </button>
+                <div className="flex gap-2 pt-1">
+                  <button type="button" onClick={generatePersona} disabled={generatingPersona}
+                    className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50">
+                    {generatingPersona ? 'Regenerating…' : 'Regenerate'}
+                  </button>
+                  <button type="button" onClick={() => { setPersona(null); setShowPersonaForm(true) }}
+                    className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">
+                    Edit
+                  </button>
+                </div>
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground italic leading-relaxed">
-                Generate a fictional candidate profile to guide your roleplay.
-              </p>
             )}
           </div>
 

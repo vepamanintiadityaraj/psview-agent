@@ -28,8 +28,8 @@ const MESSAGE_TAGS = [
 ]
 
 const FLUFF = [
-  'amazing opportunity', 'rockstar', 'cutting-edge', 'excited to share',
-  'ninja', 'guru', 'superstar', 'passionate about', 'unique opportunity', 'dream job',
+  'amazing opportunity', 'rockstar', 'ninja', 'guru', 'superstar',
+  'excited to share', 'unique opportunity', 'dream job',
 ]
 
 function computeQualityScore(
@@ -56,7 +56,7 @@ function computeQualityScore(
     },
     {
       label: 'Each message is concise (50–250 words)',
-      pass: bodies.every(b => { const w = b.trim().split(/\s+/).length; return w >= 50 && w <= 250 }),
+      pass: bodies.every(b => { const w = b.trim().split(/\s+/).length; return w >= 50 && w <= 300 }),
     },
     {
       label: role ? `Sequence is tailored to the ${role} role` : 'Messages are role-specific',

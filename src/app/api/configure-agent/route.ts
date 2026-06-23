@@ -36,6 +36,13 @@ From the company context alone, decide:
 
 Messages must reference ${companyContext.name} specifically — not generic recruiter templates.
 
+QUALITY REQUIREMENTS (non-negotiable — every message must pass these):
+- Mention "${companyContext.name}" by name in every message body.
+- Forbidden words/phrases: "rockstar", "ninja", "guru", "superstar", "amazing opportunity", "unique opportunity", "dream job", "excited to share".
+- Each message body: 100–200 words (strictly enforced — not shorter, not longer).
+- All 5 subject lines must be unique — no repetition.
+- Every message must be tailored to the ${targetRole} role with specific, relevant detail.
+
 Submit via the submit_agent_config tool.`
 }
 
@@ -219,7 +226,7 @@ export async function POST(req: NextRequest) {
         let autoRetried = false
 
         // ── Step 3: Auto-retry if score < 3 ────────────────────────────
-        if (evalResult.score < 3 && evalResult.failures.length > 0) {
+        if (evalResult.score < 5 && evalResult.failures.length > 0) {
           send('step', { n: 3, total: 3, label: `Auto-retrying — score ${evalResult.score}/5...` })
           const retryPrompt = buildRetryPrompt(userPrompt, evalResult.failures)
 
