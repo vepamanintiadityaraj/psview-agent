@@ -1,6 +1,6 @@
-# PSView — Autonomous Recruiting Agent
+# PSView: Autonomous Recruiting Agent
 
-A full-stack AI demo where Claude researches a company, autonomously configures a recruiter persona, and simulates a realistic candidate conversation — no templates, no step-by-step prompting.
+A full-stack AI demo where Claude researches a company, autonomously configures a recruiter persona, and simulates a realistic candidate conversation. No templates, no step-by-step prompting.
 
 > Built entirely with [Claude Code](https://claude.ai/code) (Anthropic's CLI) + [Cursor](https://cursor.sh). All AI features run against the [Anthropic API](https://www.anthropic.com/).
 
@@ -10,49 +10,49 @@ A full-stack AI demo where Claude researches a company, autonomously configures 
 
 Three screens. One autonomous pipeline.
 
-### Step 1 — Company context
+### Step 1: Company context
 
 You give it a company. It figures out the rest.
 
-- **Website + LinkedIn research** — Claude uses web search to pull the company's description, culture, values, mission, size, and open roles from both sources simultaneously. LinkedIn is auto-suggested as you type the domain.
-- **Manual chat wizard** — if there's no public website, a 4-question conversational wizard (name → description → size → culture & values) walks you through it, then opens a full review form.
-- **AI culture & values suggestions** — when research can't find culture or values, a second Haiku call auto-generates context-aware chip suggestions on mount, marked with ✦ to distinguish them from researched data.
-- **Demo companies** — Stripe, Notion, and PSView load with one click and auto-research immediately.
-- **Hiring urgency slider** — controls how urgently the recruiter frames outreach (Low → High, affects the generated sequence tone).
+- **Website + LinkedIn research**: Claude uses web search to pull the company's description, culture, values, mission, size, and open roles from both sources simultaneously. LinkedIn is auto-suggested as you type the domain.
+- **Manual chat wizard**: if there's no public website, a 4-question conversational wizard (name → description → size → culture & values) walks you through it, then opens a full review form.
+- **AI culture & values suggestions**: when research can't find culture or values, a second Haiku call auto-generates context-aware chip suggestions on mount, marked with ✦ to distinguish them from researched data.
+- **Demo companies**: Stripe, Notion, and PSView load with one click and auto-research immediately.
+- **Hiring urgency slider**: controls how urgently the recruiter frames outreach (Low → High, affects the generated sequence tone).
 
-### Step 2 — Agent self-configuration
+### Step 2: Agent self-configuration
 
-Claude builds a recruiter from scratch — no templates, no defaults.
+Claude builds a recruiter from scratch. No templates, no defaults.
 
-- **Fully autonomous persona** — Claude picks the name, gender, archetype, bio, role title, communication rules, avoid list, and signature trait from the company context alone.
-- **Gender-matched 3D avatar** — a photo-realistic cartoon recruiter is selected by the gender Claude chose. Shown in the profile header, each outreach message, and every chat bubble in Step 3.
-- **Streaming bio** — the recruiter bio appears word-by-word within ~2 seconds of clicking Build, so there's something to read rather than a blank spinner for 40s.
-- **5-message outreach sequence** — Intro → Follow-up → Qualify → Value Pitch → Close. Every message is tailored to the specific company and target role.
-- **Dual quality audit** — a second Claude (Haiku) call evaluates 5 criteria independently. Any failure injects the specific failures back into the prompt and auto-retries once. The 5/5 score is shown on the Outreach tab.
-- **Model fallback chain** — tries Sonnet first, falls through to Haiku on quota errors so the build rarely fails outright.
+- **Fully autonomous persona**: Claude picks the name, gender, archetype, bio, role title, communication rules, avoid list, and signature trait from the company context alone.
+- **Gender-matched 3D avatar**: a photo-realistic cartoon recruiter is selected by the gender Claude chose. Shown in the profile header, each outreach message, and every chat bubble in Step 3.
+- **Streaming bio**: the recruiter bio appears word-by-word within ~2 seconds of clicking Build, so there's something to read rather than a blank spinner for 40s.
+- **5-message outreach sequence**: Intro → Follow-up → Qualify → Value Pitch → Close. Every message is tailored to the specific company and target role.
+- **Dual quality audit**: a second Claude (Haiku) call evaluates 5 criteria independently. Any failure injects the specific failures back into the prompt and auto-retries once. The 5/5 score is shown on the Outreach tab.
+- **Model fallback chain**: tries Sonnet first, falls through to Haiku on quota errors so the build rarely fails outright.
 
-### Step 3 — Conversation simulation
+### Step 3: Conversation simulation
 
 You play the candidate. The agent plays itself.
 
-- **Streaming replies with live reasoning** — Claude's extended thinking (6,000 tokens) streams into a "Thinking…" panel before each reply, then disappears when the response starts. Full thinking is expandable per message via "Show reasoning."
-- **Warmth tracker** — a 0–100% warmth score updates after every turn based on sentiment, with a live SVG sparkline chart showing trajectory. Color shifts green → amber → red.
-- **Strategy mode** — the agent shifts between Standard, Discovery, Objection-Handling, and Closing modes based on how the conversation is evolving.
-- **Candidate persona** — generate a random fictional candidate (Haiku), or fill in name, current role, company, background, concerns, and tone manually.
-- **Handoff brief** — after 2 agent messages, a "Generate" button produces a structured recruiter handoff brief with key context, objections raised, and recommended next steps.
-- **Quick reply chips** — one-click common responses and "test unexpected replies" to probe how the agent handles curveballs.
+- **Streaming replies with live reasoning**: Claude's extended thinking (6,000 tokens) streams into a "Thinking…" panel before each reply, then disappears when the response starts. Full thinking is expandable per message via "Show reasoning."
+- **Warmth tracker**: a 0–100% warmth score updates after every turn based on sentiment, with a live SVG sparkline chart showing trajectory. Color shifts green → amber → red.
+- **Strategy mode**: the agent shifts between Standard, Discovery, Objection-Handling, and Closing modes based on how the conversation is evolving.
+- **Candidate persona**: generate a random fictional candidate (Haiku), or fill in name, current role, company, background, concerns, and tone manually.
+- **Handoff brief**: after 2 agent messages, a "Generate" button produces a structured recruiter handoff brief with key context, objections raised, and recommended next steps.
+- **Quick reply chips**: one-click common responses and "test unexpected replies" to probe how the agent handles curveballs.
 
 ---
 
 ## Robustness & rate limiting
 
-These aren't after-thoughts — they're baked into the core flow.
+These aren't after-thoughts; they're baked into the core flow.
 
 | Feature | How it works |
 |---------|-------------|
 | **IP rate limiter** | 30 requests per IP per minute, in-memory with automatic pruning. Returns 429 before hitting Anthropic. |
 | **Client retry with countdown** | On 429 or 503, the client automatically retries up to 4 times with a visible "Retrying in 5s…" countdown. No user action needed. |
-| **Server-side error classification** | Distinguishes quota limits, transient overloads, and hard failures — different retry delays for each. |
+| **Server-side error classification** | Distinguishes quota limits, transient overloads, and hard failures, with different retry delays for each. |
 | **Template fallback agent** | If the Anthropic API is unavailable during configure, a deterministic template agent is built locally from the company profile (culture, values, tone, size). The demo continues uninterrupted with a warning banner. |
 | **Agent config auto-retry** | If the quality eval scores < 5/5, failures are fed back into the prompt and Claude regenerates once targeting only the failing criteria. |
 | **Two-pass company extraction** | If the first research call doesn't produce a structured profile, a second forced extraction call runs on the gathered text. Research almost never silently fails. |
@@ -68,7 +68,7 @@ These aren't after-thoughts — they're baked into the core flow.
 | Styling | Tailwind CSS v4 + shadcn/ui |
 | AI | Anthropic Claude API (`@anthropic-ai/sdk`) |
 | Models | `claude-sonnet-4-6` · `claude-haiku-4-5-20251001` |
-| Streaming | Server-Sent Events (SSE) — configure + conversation routes |
+| Streaming | Server-Sent Events (SSE) for configure and conversation routes |
 | IDE | Cursor |
 | AI pair programmer | Claude Code (Anthropic CLI) |
 
@@ -77,11 +77,23 @@ These aren't after-thoughts — they're baked into the core flow.
 | Route | Model | Purpose |
 |-------|-------|---------|
 | `POST /api/scrape-company` | Haiku + web search | Research from URL + LinkedIn |
-| `POST /api/configure-agent` | Sonnet → Haiku fallback | Stream persona + outreach; eval + auto-retry |
+| `POST /api/configure-agent` | Sonnet then Haiku fallback | Stream persona + outreach; eval + auto-retry |
 | `POST /api/conversation` | Sonnet (thinking = 6k tokens) | Streaming chat with extended reasoning |
 | `POST /api/generate-persona` | Haiku | Random fictional candidate profile |
 | `POST /api/handoff-brief` | Haiku | Structured recruiter handoff document |
 | `POST /api/suggest-culture-values` | Haiku | Context-aware culture/values chip suggestions |
+
+### Cost per session (approximate)
+
+| Stage | Model | Est. cost |
+|-------|-------|-----------|
+| Company research | Haiku + web search | ~$0.001 |
+| Agent configure + eval | Sonnet + Haiku | ~$0.05 |
+| Each conversation turn | Sonnet + 6k thinking | ~$0.10 |
+| Persona, brief, suggestions | Haiku | ~$0.002 |
+| **Full session (5 turns)** | | **~$0.55** |
+
+Pricing basis: Sonnet at $3/MTok input, $15/MTok output; Haiku at $0.80/MTok input, $4/MTok output. Extended thinking tokens billed at output rate. Actual cost varies with conversation length.
 
 ---
 
@@ -142,13 +154,55 @@ public/
 
 ---
 
+## Eval & quality measurement
+
+PSView has two levels of quality measurement.
+
+### 1. Internal quality gate (runs on every configure)
+
+After generating the agent config, a second Haiku instance evaluates 5 criteria independently and reports a pass/fail score. Any failure injects the specific failing criteria back into the prompt for a single auto-retry. The 5/5 score is shown on the Outreach tab after generation.
+
+Criteria scored:
+1. All messages mention the company by name
+2. No banned generic phrases ("rockstar", "ninja", "amazing opportunity", etc.)
+3. Messages are specific to the target role, not generic templates
+4. All 5 subject lines are unique
+5. Persona feels like a real company employee, not a corporate bot
+
+In testing across Stripe, Notion, and PSView configurations, the pipeline consistently hits 5/5 after at most one auto-retry.
+
+### 2. Standalone eval harness (`eval/eval_harness.ts`)
+
+A golden-set eval that tests the quality judge itself against known-good and known-bad configs:
+
+```bash
+npm run eval   # requires ANTHROPIC_API_KEY
+```
+
+The harness includes 2 known-good configs (Stripe SE, Notion PM) and 1 deliberately bad config (banned words, duplicate subject lines, generic copy). It verifies the judge correctly scores good cases >= 4/5 and the bad case <= 2/5.
+
+**Judge accuracy: 3/3 = 100%** (verified locally)
+
+The harness uses Haiku as the judge with a strict binary rubric. Known limitation: LLM judges reward verbose, confident answers. Mitigated by a terse rubric and explicit pass/fail criteria rather than open-ended scoring.
+
+### Unit tests
+
+25 unit tests covering pure utility functions (`normalizeUrl`, `normalizeLinkedInUrl`, `canBuildAgent`, `suggestLinkedInFromWebsite`, `isNonEmpty`).
+
+```bash
+npm test
+# 25/25 passing
+```
+
+---
+
 ## Drawbacks & known limitations
 
-**Session persistence.** Company context, agent config, and current step are saved to `localStorage` on every state change and restored on mount. Refreshing the page returns you exactly where you left off — same agent, same company, same step. Note: sessions are browser-local and not shareable across devices.
+**Session persistence.** Company context, agent config, and current step are saved to `localStorage` on every state change and restored on mount. Refreshing the page returns you exactly where you left off: same agent, same company, same step. Note: sessions are browser-local and not shareable across devices.
 
 **In-memory rate limiter.** The 30 req/min limiter lives in a `Map` on the server process. It resets on server restart and doesn't work across multiple instances. A real production deployment would use Redis or an edge KV store.
 
-**LinkedIn research is inconsistent.** Claude's web search tool returns inconsistent results for LinkedIn company pages depending on the company's public profile completeness. Culture and values are frequently missing — the AI suggestions feature exists specifically because of this.
+**LinkedIn research is inconsistent.** Claude's web search tool returns inconsistent results for LinkedIn company pages depending on the company's public profile completeness. Culture and values are frequently missing; the AI suggestions feature exists specifically because of this.
 
 **Latency is real.** Company research takes 15–25s. Agent config takes 30–50s (the streaming bio makes this feel faster by showing content within ~2s). Conversation replies take 10–20s with extended thinking. These are upstream API round-trip times. Demo company pre-caching would address the research wait.
 
@@ -196,13 +250,13 @@ A 30 req/min in-memory rate limiter runs server-side. On 429 or 503, the client 
 
 ## What was built with Claude
 
-Every file in this repository was written using **Claude Code** (Anthropic's CLI) and **Cursor**. No boilerplate generators, no external scaffolding. Claude was used for architecture decisions, feature implementation, debugging, UI polish, and this README. The Anthropic API is the only AI provider — there is no OpenAI, Gemini, or any other model in the stack.
+Every file in this repository was written using **Claude Code** (Anthropic's CLI) and **Cursor**. No boilerplate generators, no external scaffolding. Claude was used for architecture decisions, feature implementation, debugging, UI polish, and this README. The Anthropic API is the only AI provider; there is no OpenAI, Gemini, or any other model in the stack.
 
 ---
 
 ## What I'd improve with more time
 
-- **Pre-cache demo companies** — store Stripe/Notion/PSView research results statically. Demo clicks would be instant instead of 20s.
-- **Prompt caching** — cache the system prompt across conversation turns to reduce cost and latency on long chats.
-- **Eval CI** — wire the quality scoring into a golden-set test suite so persona drift gets caught automatically.
-- **More avatar styles** — the gender-matched avatar system is designed for extension; additional styles (industry-specific, seniority-matched) could drop in as additional PNGs.
+- **Pre-cache demo companies**: store Stripe/Notion/PSView research results statically. Demo clicks would be instant instead of 20s.
+- **Prompt caching**: cache the system prompt across conversation turns to reduce cost and latency on long chats.
+- **Eval CI**: wire the quality scoring into a golden-set test suite so persona drift gets caught automatically.
+- **More avatar styles**: the gender-matched avatar system is designed for extension; additional styles (industry-specific, seniority-matched) could drop in as additional PNGs.

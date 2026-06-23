@@ -28,7 +28,7 @@ Make them credible — currently employed at a recognizable company, passively o
 Return JSON only, no markdown:
 {
   "name": "First Last",
-  "currentRole": "Title at Company",
+  "currentRole": "Job Title only (e.g. Senior Software Engineer — no company name in this field)",
   "currentCompany": "Company name",
   "background": "2 sentences of professional background",
   "likelyConcerns": ["brief concern 1", "brief concern 2", "brief concern 3"],

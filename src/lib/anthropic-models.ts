@@ -9,5 +9,5 @@ export const FAST_MODEL = 'claude-haiku-4-5-20251001'
 /** Cold-outreach sequences typically use 4–6 touches over 2–3 weeks; we generate 5. */
 export const OUTREACH_MESSAGE_COUNT = 5
 
-export const CONVERSATION_THINKING_BUDGET = 6_000
+export const CONVERSATION_THINKING_BUDGET = 2_000
 export const CONFIGURE_THINKING_BUDGET = 0

@@ -45,11 +45,13 @@ export async function POST(req: NextRequest) {
     companyContext,
     conversationHistory,
     candidatePersona,
+    replyTone,
   }: {
     personality: AgentPersonality
     companyContext: CompanyContext
     conversationHistory: ConversationMessage[]
     candidatePersona?: CandidatePersona
+    replyTone?: number
   } = body
 
   const lastMessage = conversationHistory[conversationHistory.length - 1]
@@ -61,7 +63,7 @@ export async function POST(req: NextRequest) {
   }
 
   const priorHistory = conversationHistory.slice(0, -1)
-  const systemInstruction = buildConversationSystemInstruction(personality, companyContext, candidatePersona)
+  const systemInstruction = buildConversationSystemInstruction(personality, companyContext, candidatePersona, replyTone)
   const messages = [
     ...buildChatHistory(priorHistory),
     { role: 'user' as const, content: lastMessage.content },
@@ -77,7 +79,7 @@ export async function POST(req: NextRequest) {
       try {
         const response = getAnthropic().messages.stream({
           model: DEFAULT_MODEL,
-          max_tokens: 16_000,
+          max_tokens: 3_000,
           thinking: conversationThinking,
           system: systemInstruction,
           messages,

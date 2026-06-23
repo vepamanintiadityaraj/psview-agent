@@ -242,7 +242,7 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
   const { personality, messageSequence, companyContext } = agentConfig
 
   const [view, setView] = useState<ViewTab>('chat')
-  const [messages, setMessages] = useState<ConversationMessage[]>(() => initialMessages(agentConfig))
+  const [messages, setMessages] = useState<ConversationMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [streamingIdx, setStreamingIdx] = useState<number | null>(null)
@@ -271,11 +271,13 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
   // Handoff brief
   const [handoffBrief, setHandoffBrief] = useState<string | null>(null)
   const [generatingBrief, setGeneratingBrief] = useState(false)
+  // Reply tone (0 = formal, 100 = casual)
+  const [replyTone, setReplyTone] = useState(50)
 
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const resetConversation = useCallback(() => {
-    setMessages(initialMessages(agentConfig))
+    setMessages(persona ? initialMessages(agentConfig) : [])
     setSentiment('neutral')
     setStage('opening')
     setLastSignal('')
@@ -291,6 +293,13 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
     setIsThinkingPhase(false)
     setHandoffBrief(null)
   }, [agentConfig])
+
+  // Start the conversation with the opening message once a candidate is set
+  useEffect(() => {
+    if (persona && messages.length === 0) {
+      setMessages(initialMessages(agentConfig))
+    }
+  }, [persona, agentConfig]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -364,6 +373,7 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
       companyContext,
       conversationHistory: updatedHistory,
       candidatePersona: persona ?? undefined,
+      replyTone,
     }
 
     try {
@@ -586,6 +596,26 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
           ) : (
             <>
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {messages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-full text-center gap-4 py-16">
+                    <UserCircle className="w-10 h-10 text-muted-foreground/40" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Set up a candidate first</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Generate or create a candidate profile to start the simulation.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={generatePersona} disabled={generatingPersona}>
+                        {generatingPersona ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" /> : null}
+                        {generatingPersona ? 'Generating...' : 'Generate random'}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setShowPersonaForm(true)}>
+                        Enter details
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {messages.map((msg, i) => (
                   <div key={i} className={cn('flex gap-3', msg.role === 'candidate' && 'flex-row-reverse')}>
                     <div className={cn(
@@ -868,14 +898,20 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
               <div className="space-y-2">
                 <div>
                   <p className="text-sm font-medium">{persona.name}</p>
-                  <p className="text-xs text-muted-foreground">{persona.currentRole} · {persona.currentCompany}</p>
+                  <p className="text-xs text-muted-foreground">{persona.currentRole} at {persona.currentCompany}</p>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">{persona.background}</p>
                 {persona.likelyConcerns.length > 0 && (
-                  <div className="flex flex-wrap gap-1 pt-1">
-                    {persona.likelyConcerns.map((c, i) => (
-                      <Badge key={i} variant="secondary" className="text-[10px] whitespace-normal break-words max-w-full">{c}</Badge>
-                    ))}
+                  <div className="pt-1 space-y-1">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Concerns</p>
+                    <ul className="space-y-1">
+                      {persona.likelyConcerns.map((c, i) => (
+                        <li key={i} className="text-[11px] text-muted-foreground leading-snug flex gap-1.5">
+                          <span className="shrink-0 mt-0.5 text-muted-foreground/50">·</span>
+                          <span className="break-words min-w-0">{c}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
                 <div className="flex items-center justify-between pt-1">
@@ -894,6 +930,28 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Reply tone slider */}
+          <div className="panel p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+              Reply Tone
+            </h3>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={replyTone}
+              onChange={e => setReplyTone(Number(e.target.value))}
+              className="w-full accent-foreground"
+            />
+            <div className="flex justify-between mt-1">
+              <span className="text-[10px] text-muted-foreground">Formal</span>
+              <span className="text-[10px] font-medium text-foreground">
+                {replyTone < 20 ? 'Very formal' : replyTone < 40 ? 'Formal' : replyTone < 60 ? 'Balanced' : replyTone < 80 ? 'Casual' : 'Very casual'}
+              </span>
+              <span className="text-[10px] text-muted-foreground">Casual</span>
+            </div>
           </div>
 
           <CandidateMemoryPanel

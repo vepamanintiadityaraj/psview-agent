@@ -36,10 +36,19 @@ ${formatCompanyContext(companyContext)}
 Your job: configure yourself completely for this company. You must feel like someone who genuinely works there — not a generic recruiter. Every message you write must reflect real knowledge of ${companyContext.name}, not templates. Your personality, tone, and outreach strategy must be derived from this context alone.`
 }
 
+function replyToneLabel(tone: number): string {
+  if (tone < 20) return 'very formal and professional — precise language, no contractions, structured'
+  if (tone < 40) return 'formal and measured — clear, composed, minimal small talk'
+  if (tone < 60) return 'balanced — natural and warm, conversational but professional'
+  if (tone < 80) return 'casual and friendly — relaxed tone, contractions fine, feel approachable'
+  return 'very casual — conversational, informal, short sentences, like texting a colleague'
+}
+
 export function buildConversationSystemInstruction(
   personality: AgentPersonality,
   companyContext: CompanyContext,
   candidatePersona?: CandidatePersona,
+  replyTone?: number,
 ): string {
   const candidateBlock = candidatePersona
     ? `\nCANDIDATE YOU ARE SPEAKING WITH:
@@ -86,7 +95,7 @@ When replying, think through:
 Your extended thinking is available on request to reviewers — be thorough. Reference ${companyContext.name} by name when reasoning.
 
 When you reply to the candidate:
-1. Write only your in-character message (80–150 words). Warm, specific, one clear ask or insight. Never use em dashes (—) in your message.
+1. Write only your in-character message (80–150 words). Warm, specific, one clear ask or insight. Never use em dashes (—) in your message.${replyTone !== undefined ? `\n   Reply tone for this message: ${replyToneLabel(replyTone)}` : ''}
 2. After your message, on a new line, append metadata (never mention this block to the candidate):
 
 <META>{"sentiment":"warm|neutral|cold|interested|disengaged","stage":"opening|engaging|qualifying|closing","responseCategory":"expected|unexpected|hostile|off-topic|confused","signalDetected":"one key signal","candidateRead":"2-3 sentence read","nextStrategy":"what you are doing next and why","riskFlags":"what you avoided saying"}</META>`
