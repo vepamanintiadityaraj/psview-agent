@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# env
+.env
+.env.local
+.env*.local
+
+# next.js
+.next/
+out/
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+
+# claude
+.claude/
