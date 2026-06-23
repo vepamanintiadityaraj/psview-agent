@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import {
   CULTURE_SUGGESTIONS, VALUE_SUGGESTIONS, ROLE_SUGGESTIONS,
-  TONE_LABELS, toneLabel,
+  TONE_LABELS, toneLabel, urgencyLabel,
 } from '@/lib/company'
 import { Building2, Plus, X, Target, Sparkles, AlertCircle, Loader2 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
@@ -59,6 +59,8 @@ function ManualEntryBanner({ children }: { children: React.ReactNode }) {
   )
 }
 
+type ChipDef = { label: string; kind: 'culture' | 'values'; ai: boolean }
+
 export default function CompanyDetailsForm({
   context,
   setContext,
@@ -68,9 +70,8 @@ export default function CompanyDetailsForm({
   onEnrich,
   enriching,
 }: Props) {
-  const [customCulture, setCustomCulture] = useState('')
-  const [customValue, setCustomValue]   = useState('')
-  const [customRole, setCustomRole]     = useState('')
+  const [customTag, setCustomTag] = useState('')
+  const [customRole, setCustomRole] = useState('')
   const [customHiredRole, setCustomHiredRole] = useState('')
 
   // AI suggestions for missing culture/values
@@ -100,18 +101,55 @@ export default function CompanyDetailsForm({
     }
   }
 
-  function toggleCulture(tag: string) {
+  // Build unified chip list: AI suggestions first (✦), then static pool
+  const aiChips: ChipDef[] = [
+    ...(aiSuggestions?.culture ?? []).map(l => ({ label: l, kind: 'culture' as const, ai: true })),
+    ...(aiSuggestions?.values ?? []).map(l => ({ label: l, kind: 'values' as const, ai: true })),
+  ]
+  const aiLabels = new Set(aiChips.map(c => c.label.toLowerCase()))
+  const staticChips: ChipDef[] = [
+    ...CULTURE_SUGGESTIONS.map(l => ({ label: l, kind: 'culture' as const, ai: false })),
+    ...VALUE_SUGGESTIONS.map(l => ({ label: l, kind: 'values' as const, ai: false })),
+  ].filter(c => !aiLabels.has(c.label.toLowerCase()))
+  const allChips = [...aiChips, ...staticChips]
+
+  function isChipActive(chip: ChipDef): boolean {
+    return chip.kind === 'culture'
+      ? context.culture.includes(chip.label)
+      : context.values.includes(chip.label)
+  }
+
+  function toggleChip(chip: ChipDef) {
+    if (chip.kind === 'culture') {
+      setContext(c => ({
+        ...c,
+        culture: c.culture.includes(chip.label) ? c.culture.filter(x => x !== chip.label) : [...c.culture, chip.label],
+      }))
+    } else {
+      setContext(c => ({
+        ...c,
+        values: c.values.includes(chip.label) ? c.values.filter(x => x !== chip.label) : [...c.values, chip.label],
+      }))
+    }
+  }
+
+  function removeSelected(label: string) {
     setContext(c => ({
       ...c,
-      culture: c.culture.includes(tag) ? c.culture.filter(x => x !== tag) : [...c.culture, tag],
+      culture: c.culture.filter(x => x !== label),
+      values: c.values.filter(x => x !== label),
     }))
   }
 
-  function toggleValue(tag: string) {
+  function addCustomTag(val: string) {
+    const v = val.trim()
+    if (!v) return
+    // Add custom entries to culture by default
     setContext(c => ({
       ...c,
-      values: c.values.includes(tag) ? c.values.filter(x => x !== tag) : [...c.values, tag],
+      culture: c.culture.includes(v) ? c.culture : [...c.culture, v],
     }))
+    setCustomTag('')
   }
 
   function toggleHiredRole(role: string) {
@@ -124,13 +162,14 @@ export default function CompanyDetailsForm({
   }
 
   const toneIndex = Math.min(4, Math.floor(context.tone / 20))
+  const urgency = context.urgency ?? 50
   const hiredRoleOptions = [...new Set([...ROLE_SUGGESTIONS, ...context.rolesHired])]
   const needsCulture = needsManualInput.includes('culture') && context.culture.length === 0
   const needsValues  = needsManualInput.includes('values')  && context.values.length === 0
-
-  // AI suggestion chips not yet toggled into context
-  const suggestedCulture = aiSuggestions?.culture.filter(s => !CULTURE_SUGGESTIONS.includes(s)) ?? []
-  const suggestedValues  = aiSuggestions?.values.filter(s => !VALUE_SUGGESTIONS.includes(s)) ?? []
+  const selectedTags = [
+    ...context.culture.map(l => ({ label: l, kind: 'culture' as const })),
+    ...context.values.filter(v => !context.culture.includes(v)).map(l => ({ label: l, kind: 'values' as const })),
+  ]
 
   return (
     <div className="space-y-6">
@@ -231,8 +270,8 @@ export default function CompanyDetailsForm({
         )}
       </div>
 
-      {/* Culture & Values — merged panel */}
-      <div className="panel p-6 space-y-6">
+      {/* Culture & Values — unified chip panel */}
+      <div className="panel p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <label className="text-sm font-medium block">Culture &amp; Values</label>
@@ -250,119 +289,102 @@ export default function CompanyDetailsForm({
           )}
         </div>
 
-        {/* Culture section */}
+        {(needsCulture || needsValues) && (
+          <ManualEntryBanner>Not found on the website — pick from the suggestions below or add your own.</ManualEntryBanner>
+        )}
+
+        {selectedTags.length === 0 && !needsCulture && !needsValues && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            Select at least one culture trait or value to continue.
+          </p>
+        )}
+
+        {/* Unified chip pool: AI suggestions first (✦), then static */}
+        <div className="flex flex-wrap gap-2">
+          {allChips.map(chip => (
+            <TagButton key={`${chip.kind}-${chip.label}`} active={isChipActive(chip)} onClick={() => toggleChip(chip)}>
+              {chip.ai && <span className="text-amber-500 mr-0.5">✦</span>}
+              {chip.label}
+            </TagButton>
+          ))}
+        </div>
+
+        {/* Custom input */}
+        <div className="flex gap-2">
+          <Input
+            placeholder="Add a trait or value…"
+            value={customTag}
+            onChange={e => setCustomTag(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') addCustomTag(customTag) }}
+          />
+          <Button type="button" size="sm" variant="outline" onClick={() => addCustomTag(customTag)}>
+            <Plus className="w-3 h-3" />
+          </Button>
+        </div>
+
+        {/* Selected chips */}
+        {selectedTags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {selectedTags.map(({ label }) => (
+              <Badge key={label} variant="secondary" className="gap-1 pr-1 whitespace-normal break-words max-w-full">
+                {label}
+                <button type="button" onClick={() => removeSelected(label)} className="ml-1 hover:text-destructive">
+                  <X className="w-3 h-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Tone & Urgency */}
+      <div className="panel p-6 space-y-6">
+        {/* Communication tone */}
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Culture traits *</p>
-          {needsCulture && <ManualEntryBanner>Not found on the website — add traits or use the AI suggestions below.</ManualEntryBanner>}
-          <div className="flex flex-wrap gap-2 mb-2">
-            {CULTURE_SUGGESTIONS.map(tag => (
-              <TagButton key={tag} active={context.culture.includes(tag)} onClick={() => toggleCulture(tag)}>
-                {tag}
-              </TagButton>
-            ))}
-            {suggestedCulture.map(tag => (
-              <TagButton key={tag} active={context.culture.includes(tag)} onClick={() => toggleCulture(tag)}>
-                <span className="text-amber-600 mr-0.5">✦</span>{tag}
-              </TagButton>
-            ))}
+          <div className="flex items-center justify-between mb-4">
+            <label className="text-sm font-medium">Communication tone</label>
+            <Badge variant="secondary">{TONE_LABELS[toneIndex]}</Badge>
           </div>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Add custom trait…"
-              value={customCulture}
-              onChange={e => setCustomCulture(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && customCulture.trim()) {
-                  setContext(c => ({ ...c, culture: [...c.culture, customCulture.trim()] }))
-                  setCustomCulture('')
-                }
-              }}
-            />
-            <Button type="button" size="sm" variant="outline" onClick={() => {
-              if (customCulture.trim()) {
-                setContext(c => ({ ...c, culture: [...c.culture, customCulture.trim()] }))
-                setCustomCulture('')
-              }
-            }}><Plus className="w-3 h-3" /></Button>
+          <Slider
+            value={[context.tone]}
+            onValueChange={(val) => setContext(c => ({ ...c, tone: Array.isArray(val) ? val[0] : val }))}
+            min={0} max={100} step={5}
+            className="mb-2"
+          />
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Very Formal</span>
+            <span>Very Casual</span>
           </div>
-          {context.culture.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {context.culture.map(tag => (
-                <Badge key={tag} variant="secondary" className="gap-1 pr-1">
-                  {tag}
-                  <button type="button" onClick={() => toggleCulture(tag)} className="ml-1 hover:text-destructive">
-                    <X className="w-3 h-3" />
-                  </button>
-                </Badge>
-              ))}
-            </div>
-          )}
         </div>
 
         <div className="border-t border-border pt-6">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Company values *</p>
-          {needsValues && <ManualEntryBanner>Not found on the website — add values or use the AI suggestions below.</ManualEntryBanner>}
-          <div className="flex flex-wrap gap-2 mb-2">
-            {VALUE_SUGGESTIONS.map(tag => (
-              <TagButton key={tag} active={context.values.includes(tag)} onClick={() => toggleValue(tag)}>
-                {tag}
-              </TagButton>
-            ))}
-            {suggestedValues.map(tag => (
-              <TagButton key={tag} active={context.values.includes(tag)} onClick={() => toggleValue(tag)}>
-                <span className="text-amber-600 mr-0.5">✦</span>{tag}
-              </TagButton>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Add custom value…"
-              value={customValue}
-              onChange={e => setCustomValue(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && customValue.trim()) {
-                  setContext(c => ({ ...c, values: [...c.values, customValue.trim()] }))
-                  setCustomValue('')
-                }
-              }}
-            />
-            <Button type="button" size="sm" variant="outline" onClick={() => {
-              if (customValue.trim()) {
-                setContext(c => ({ ...c, values: [...c.values, customValue.trim()] }))
-                setCustomValue('')
-              }
-            }}><Plus className="w-3 h-3" /></Button>
-          </div>
-          {context.values.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {context.values.map(tag => (
-                <Badge key={tag} variant="secondary" className="gap-1 pr-1">
-                  {tag}
-                  <button type="button" onClick={() => toggleValue(tag)} className="ml-1 hover:text-destructive">
-                    <X className="w-3 h-3" />
-                  </button>
-                </Badge>
-              ))}
+          {/* Hiring urgency */}
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <label className="text-sm font-medium block">Hiring urgency</label>
+              <p className="text-xs text-muted-foreground mt-0.5">Controls how urgently the recruiter frames outreach</p>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Tone */}
-      <div className="panel p-6">
-        <div className="flex items-center justify-between mb-4">
-          <label className="text-sm font-medium">Communication tone</label>
-          <Badge variant="secondary">{TONE_LABELS[toneIndex]}</Badge>
-        </div>
-        <Slider
-          value={[context.tone]}
-          onValueChange={(val) => setContext(c => ({ ...c, tone: Array.isArray(val) ? val[0] : val }))}
-          min={0} max={100} step={5}
-          className="mb-2"
-        />
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Very Formal</span>
-          <span>Very Casual</span>
+            <Badge
+              variant="secondary"
+              className={cn(
+                urgency < 34 ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                urgency < 67 ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                               'bg-red-50 text-red-700 border-red-200',
+              )}
+            >
+              {urgencyLabel(urgency)}
+            </Badge>
+          </div>
+          <Slider
+            value={[urgency]}
+            onValueChange={(val) => setContext(c => ({ ...c, urgency: Array.isArray(val) ? val[0] : val }))}
+            min={0} max={100} step={5}
+            className="mb-2"
+          />
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Low — no pressure</span>
+            <span>High — tight timeline</span>
+          </div>
         </div>
       </div>
 

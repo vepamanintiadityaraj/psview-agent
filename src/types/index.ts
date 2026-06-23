@@ -11,6 +11,7 @@ export interface CompanyContext {
   mission?: string
   companySize?: string
   hiringIntent?: string
+  urgency?: number // 0 = low urgency, 100 = high urgency
   source?: 'url' | 'name' | 'describe' | 'manual'
 }
 

@@ -1,5 +1,5 @@
-import { CompanyContext, AgentPersonality } from '@/types'
-import { toneLabel as toneSliderLabel } from '@/lib/company'
+import { CompanyContext, AgentPersonality, CandidatePersona } from '@/types'
+import { toneLabel as toneSliderLabel, urgencyLabel } from '@/lib/company'
 import type Anthropic from '@anthropic-ai/sdk'
 
 export function toneLabel(tone: number): string {
@@ -20,6 +20,7 @@ export function formatCompanyContext(ctx: CompanyContext): string {
     `- Culture: ${ctx.culture.join(', ')}`,
     `- Values: ${ctx.values.join(', ')}`,
     `- Communication tone: ${toneLabel(ctx.tone)} (${toneSliderLabel(ctx.tone)})`,
+    ctx.urgency !== undefined ? `- Hiring urgency: ${urgencyLabel(ctx.urgency)} — ${ctx.urgency < 34 ? 'relaxed pace, no pressure in outreach' : ctx.urgency < 67 ? 'moderate pace, mention active pipeline' : 'high urgency, convey timeline pressure and competitive process in every message'}` : null,
     ctx.rolesHired.length ? `- Roles typically hired: ${ctx.rolesHired.join(', ')}` : null,
     ctx.hiringIntent ? `- Hiring intent: ${ctx.hiringIntent}` : null,
   ]
@@ -38,7 +39,19 @@ Your job: configure yourself completely for this company. You must feel like som
 export function buildConversationSystemInstruction(
   personality: AgentPersonality,
   companyContext: CompanyContext,
+  candidatePersona?: CandidatePersona,
 ): string {
+  const candidateBlock = candidatePersona
+    ? `\nCANDIDATE YOU ARE SPEAKING WITH:
+- Name: ${candidatePersona.name}
+- Current role: ${candidatePersona.currentRole} at ${candidatePersona.currentCompany}
+- Background: ${candidatePersona.background}
+${candidatePersona.likelyConcerns?.length ? `- Likely concerns: ${candidatePersona.likelyConcerns.join(', ')}` : ''}
+- Communication tone: ${candidatePersona.tone}
+
+Always address them by name (${candidatePersona.name}). Reference their background and current role naturally when relevant — don't be robotic about it.\n`
+    : ''
+
   return `You are ${personality.name}, a ${personality.role} at ${companyContext.name}.
 
 Your personality: ${personality.bio}
@@ -52,7 +65,7 @@ ${personality.avoidList.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
 COMPANY YOU REPRESENT:
 ${formatCompanyContext(companyContext)}
-
+${candidateBlock}
 You are an autonomous recruiting agent. Before every reply, think through candidate intent — including unexpected, hostile, off-topic, or nonsensical messages.
 
 Handle unexpected candidate responses gracefully:
@@ -94,6 +107,7 @@ export const COMPANY_PROFILE_TOOL: Anthropic.Tool = {
       suggestedTone: { type: 'number' },
       mission: { type: 'string' },
       companySize: { type: 'string' },
+      websiteUrl: { type: 'string', description: 'Official company website URL discovered during research, if not provided upfront.' },
     },
     required: ['name', 'description', 'industry', 'suggestedTone'],
   },
@@ -101,21 +115,21 @@ export const COMPANY_PROFILE_TOOL: Anthropic.Tool = {
 
 export const WEBSITE_RESEARCH_SYSTEM = `You are a strict company research assistant. Use web search only to read official company sources.
 
-SOURCE RULES (critical):
+RESILIENCE RULE (critical): You MUST always call submit_company_profile at the end — even if some sources are inaccessible. If a URL is blocked, returns an error, or cannot be loaded, skip it silently and use whatever other sources are available. Never refuse to submit a profile due to a failed URL.
+
+SOURCE RULES:
 - Official website pages: About, Careers, Culture, Values, Mission, team pages on the company's own domain.
-- LinkedIn company page: ONLY when a LinkedIn URL is provided in the request — use it mainly for employee count / company size.
+- LinkedIn company page: ONLY when a LinkedIn URL is provided — use it mainly for employee count / company size. If LinkedIn is blocked or inaccessible, skip it and rely on the website.
 - Do NOT use third-party articles, Glassdoor, news, Wikipedia, or inference to fill culture or values.
 
 FIELD RULES:
 1. culture — ONLY traits explicitly written on the company website or their LinkedIn "About" / culture section. Short phrases (2–6 words each). If not explicitly stated, return [] (empty array). Never invent or infer.
 2. values — ONLY values explicitly listed as company values on those same official sources. If not found, return [].
-3. companySize — ALWAYS read from the LinkedIn company page when a LinkedIn URL is provided (employee count range). Supplement from website only if LinkedIn lacks it.
+3. companySize — Read from LinkedIn if accessible, otherwise from website. If neither has it, omit.
 4. rolesHired — ONLY job titles from current openings on the company's careers/jobs page or LinkedIn Jobs if listed. If none visible, return [].
-5. description, mission, industry — combine official website + LinkedIn About for factual summaries.
+5. description, mission, industry — combine official website + LinkedIn About for factual summaries. Use website alone if LinkedIn is inaccessible.
 
-When a LinkedIn company URL is provided, you MUST visit it and use it for size, industry, description, and any stated culture/values before submitting.
-
-Empty arrays are correct. Do not fabricate culture or values to be helpful.`
+Empty arrays are correct. Always call submit_company_profile with partial data rather than failing to submit at all.`
 
 export const AGENT_CONFIG_TOOL: Anthropic.Tool = {
   name: 'submit_agent_config',

@@ -43,16 +43,6 @@ const STEPS: Step[] = [
     placeholder: 'e.g. ~500, 10,000+, early-stage (~30)',
     apply: (a, ctx) => ({ ...ctx, companySize: a.trim() }),
   },
-  {
-    id: 'cultureValues',
-    question: ctx => `How would you describe ${ctx.name}'s culture and values? A few words or phrases, comma-separated.`,
-    placeholder: 'Fast-paced, ownership, transparency, customer-first…',
-    multiline: true,
-    apply: (a, ctx) => {
-      const tags = a.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
-      return { ...ctx, culture: tags, values: tags }
-    },
-  },
 ]
 
 interface Props {
@@ -93,7 +83,7 @@ export default function ManualChatForm({ onDone }: Props) {
         { role: 'user', text: trimmed },
         {
           role: 'bot',
-          text: `Perfect — I have everything I need to get started with ${newCtx.name}. Click "Continue to Review" to fill in the remaining details and build the agent.`,
+          text: `Got it — that's enough to get started with ${newCtx.name}. On the next page I'll suggest culture traits and values for you to pick from, plus you can set the tone, hiring urgency, and target role.`,
         },
       ])
       setStepIdx(nextIdx)

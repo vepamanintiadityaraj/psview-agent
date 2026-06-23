@@ -163,21 +163,15 @@ const STAGE_LABELS: Record<string, string> = {
   closing: 'Closing',
 }
 
-const QUICK_REPLIES = [
-  "I'm interested, tell me more",
-  "I'm not looking right now",
-  "What's the salary range?",
-  "Can we schedule a call?",
-  "This doesn't sound like a fit",
-  "What does the team look like?",
-]
-
-const UNEXPECTED_REPLIES = [
-  'Who is this? How did you get my email?',
-  'Please remove me from your list',
-  "Wrong person — I don't work there anymore",
-  'asdfghjkl random keyboard mash',
-  "Stop messaging me, I'm on vacation",
+const QUICK_REPLIES: { text: string; unexpected?: boolean }[] = [
+  { text: "I'm interested, tell me more" },
+  { text: "I'm not looking right now" },
+  { text: "What's the salary range?" },
+  { text: "Can we schedule a call?" },
+  { text: "This doesn't sound like a fit" },
+  { text: "What does the team look like?" },
+  { text: 'Who is this? How did you get my email?', unexpected: true },
+  { text: 'Please remove me from your list', unexpected: true },
 ]
 
 function initialMessages(agentConfig: AgentConfig): ConversationMessage[] {
@@ -365,7 +359,12 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
     setMessages([...updatedHistory, agentPlaceholder])
     setStreamingIdx(agentIdx)
 
-    const payload = { personality, companyContext, conversationHistory: updatedHistory }
+    const payload = {
+      personality,
+      companyContext,
+      conversationHistory: updatedHistory,
+      candidatePersona: persona ?? undefined,
+    }
 
     try {
       let data: Awaited<ReturnType<typeof consumeConversationStream>> | null = null
@@ -714,36 +713,21 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
 
               <div className="border-t border-border p-4 space-y-4">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Test unexpected replies</p>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {UNEXPECTED_REPLIES.map(reply => (
-                      <Button
-                        key={reply}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => sendReply(reply)}
-                        disabled={loading}
-                        className="text-xs h-auto py-1.5 border-amber-200 text-amber-900 hover:bg-amber-50"
-                      >
-                        {reply}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">Quick replies</p>
                   <div className="flex flex-wrap gap-2">
-                    {QUICK_REPLIES.map(reply => (
+                    {QUICK_REPLIES.map(({ text, unexpected }) => (
                       <Button
-                        key={reply}
+                        key={text}
                         variant="outline"
                         size="sm"
-                        onClick={() => sendReply(reply)}
+                        onClick={() => sendReply(text)}
                         disabled={loading}
-                        className="text-xs h-auto py-1.5"
+                        className={cn(
+                          'text-xs h-auto py-1.5',
+                          unexpected && 'border-amber-200 text-amber-800 hover:bg-amber-50',
+                        )}
                       >
-                        {reply}
+                        {text}
                       </Button>
                     ))}
                   </div>

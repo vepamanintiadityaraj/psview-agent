@@ -12,7 +12,7 @@ import {
 } from '@/lib/conversation'
 import { rateLimit, missing } from '@/lib/guard'
 import { parseApiError } from '@/lib/ai-error'
-import { AgentPersonality, CompanyContext, ConversationMessage } from '@/types'
+import { AgentPersonality, CandidatePersona, CompanyContext, ConversationMessage } from '@/types'
 
 function sseEncode(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
@@ -44,10 +44,12 @@ export async function POST(req: NextRequest) {
     personality,
     companyContext,
     conversationHistory,
+    candidatePersona,
   }: {
     personality: AgentPersonality
     companyContext: CompanyContext
     conversationHistory: ConversationMessage[]
+    candidatePersona?: CandidatePersona
   } = body
 
   const lastMessage = conversationHistory[conversationHistory.length - 1]
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
   }
 
   const priorHistory = conversationHistory.slice(0, -1)
-  const systemInstruction = buildConversationSystemInstruction(personality, companyContext)
+  const systemInstruction = buildConversationSystemInstruction(personality, companyContext, candidatePersona)
   const messages = [
     ...buildChatHistory(priorHistory),
     { role: 'user' as const, content: lastMessage.content },

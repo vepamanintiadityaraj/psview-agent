@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { CompanyContext, AgentConfig } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -50,7 +50,6 @@ function buildResearchWarnings(data: Record<string, unknown>): string {
   const parts: string[] = []
   if (needs.includes('culture')) parts.push('Culture was not found on the website — AI suggestions have been loaded below.')
   if (needs.includes('values'))  parts.push('Values were not found on the website — AI suggestions have been loaded below.')
-  if (!(data.rolesHired as string[] | undefined)?.length) parts.push('No open roles found — pick a target role below.')
   return parts.join(' ')
 }
 
@@ -60,6 +59,8 @@ export default function CompanyForm({ onComplete }: Props) {
 
   const [url, setUrl] = useState('')
   const [linkedinUrl, setLinkedinUrl] = useState('')
+  // Track if the user has manually typed in the LinkedIn field so we stop auto-filling
+  const linkedinManualRef = useRef(false)
 
   const [loadingCompany, setLoadingCompany] = useState(false)
   const [loadingAgent, setLoadingAgent]   = useState(false)
@@ -123,8 +124,10 @@ export default function CompanyForm({ onComplete }: Props) {
   }
 
   function handleUrlAnalyze() {
-    if (!url.trim() || !linkedinUrl.trim()) return
-    researchCompany({ mode: 'url', url: url.trim(), linkedinUrl: linkedinUrl.trim() })
+    const hasUrl = url.trim()
+    const hasLinkedIn = linkedinUrl.trim()
+    if (!hasUrl && !hasLinkedIn) return
+    researchCompany({ mode: 'url', url: hasUrl, linkedinUrl: hasLinkedIn })
   }
 
   async function enrichManual() {
@@ -239,10 +242,15 @@ export default function CompanyForm({ onComplete }: Props) {
     setShowForm(false)
     setContext({ ...EMPTY_CONTEXT })
     setTargetRole('')
+    setUrl('')
+    setLinkedinUrl('')
+    linkedinManualRef.current = false
   }
 
   function handleManualDone(ctx: CompanyContext) {
     setContext(ctx)
+    // Always trigger AI chip suggestions for culture & values in manual mode
+    setNeedsManualInput(['culture', 'values'])
     setShowForm(true)
   }
 
@@ -287,7 +295,8 @@ export default function CompanyForm({ onComplete }: Props) {
       {/* URL mode input panel */}
       {entryMode === 'url' && !showForm && (
         <div className="panel p-6 mb-6">
-          <label className="text-sm font-medium mb-3 block">Company website</label>
+          <label className="text-sm font-medium mb-1 block">Company website</label>
+          <p className="text-xs text-muted-foreground mb-3">Optional if you have the LinkedIn page</p>
           <div className="flex gap-2 mb-4">
             <Input
               placeholder="stripe.com"
@@ -295,27 +304,37 @@ export default function CompanyForm({ onComplete }: Props) {
               onChange={e => {
                 const v = e.target.value
                 setUrl(v)
-                if (!linkedinUrl.trim()) {
+                // Re-suggest LinkedIn as user types; only update when we have a suggestion or
+                // the field is fully cleared — don't wipe an existing auto-fill mid-edit.
+                if (!linkedinManualRef.current) {
                   const suggested = suggestLinkedInFromWebsite(v)
-                  if (suggested) setLinkedinUrl(suggested)
+                  if (suggested) {
+                    setLinkedinUrl(suggested)
+                  } else if (!v.trim()) {
+                    setLinkedinUrl('')
+                  }
                 }
               }}
               onKeyDown={e => e.key === 'Enter' && handleUrlAnalyze()}
             />
             <Button
               onClick={handleUrlAnalyze}
-              disabled={!url.trim() || !linkedinUrl.trim() || loadingCompany}
+              disabled={(!url.trim() && !linkedinUrl.trim()) || loadingCompany}
               className="shrink-0"
             >
               {loadingCompany ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Analyze'}
             </Button>
           </div>
 
-          <label className="text-sm font-medium mb-2 block">LinkedIn company page *</label>
+          <label className="text-sm font-medium mb-1 block">LinkedIn company page</label>
+          <p className="text-xs text-muted-foreground mb-2">Optional if you have the website — either one works</p>
           <Input
             placeholder="linkedin.com/company/stripe"
             value={linkedinUrl}
-            onChange={e => setLinkedinUrl(e.target.value)}
+            onChange={e => {
+              linkedinManualRef.current = true
+              setLinkedinUrl(e.target.value)
+            }}
             className="mb-4"
           />
 
@@ -323,8 +342,7 @@ export default function CompanyForm({ onComplete }: Props) {
             <p className="text-sm text-muted-foreground mb-3">Retrying in {waitSeconds}s…</p>
           )}
           <p className="text-sm text-muted-foreground mb-4">
-            Website + LinkedIn are both researched for size, culture, and values. If culture or values
-            aren&apos;t found on either source, AI suggestions load automatically.
+            Provide a website, LinkedIn, or both. Culture and values are pulled from official sources — AI suggestions load automatically if not found.
           </p>
           <div className="flex flex-wrap gap-2">
             {DEMO_COMPANIES.map(demo => (
@@ -395,9 +413,9 @@ export default function CompanyForm({ onComplete }: Props) {
             </p>
           )}
 
-          {!buildCheck.ok && (
+          {!buildCheck.ok && buildCheck.missing.filter(m => !m.includes('culture')).length > 0 && (
             <p className="text-center text-sm text-muted-foreground">
-              Still needed: {buildCheck.missing.join(', ')}
+              Still needed: {buildCheck.missing.filter(m => !m.includes('culture')).join(', ')}
             </p>
           )}
         </div>

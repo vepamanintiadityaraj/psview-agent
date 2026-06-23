@@ -9,6 +9,7 @@ import {
   ChevronDown, ChevronUp, MessageSquare, Shield, Star, CheckCircle, XCircle,
 } from 'lucide-react'
 import { OUTREACH_MESSAGE_COUNT } from '@/lib/anthropic-models'
+import { urgencyLabel } from '@/lib/company'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -349,7 +350,7 @@ export default function AgentProfile({ agentConfig, onSimulate, onBack }: Props)
 
               <Button onClick={onSimulate} size="lg" className="w-full bg-[#0a66c2] hover:bg-[#004182]">
                 <Play className="w-4 h-4 mr-2" />
-                Start simulation with message 1
+                Start Simulation
               </Button>
             </div>
           )}
@@ -368,6 +369,27 @@ export default function AgentProfile({ agentConfig, onSimulate, onBack }: Props)
                       {rule}
                     </li>
                   ))}
+                  {companyContext.urgency !== undefined && (
+                    <li className="text-sm text-muted-foreground flex gap-2 pt-1 border-t border-border mt-2">
+                      <span className="text-[#0a66c2] font-bold shrink-0">·</span>
+                      <span>
+                        Hiring urgency is{' '}
+                        <span className={cn(
+                          'font-medium',
+                          companyContext.urgency < 34 ? 'text-blue-600' :
+                          companyContext.urgency < 67 ? 'text-amber-600' : 'text-red-600',
+                        )}>
+                          {urgencyLabel(companyContext.urgency).toLowerCase()}
+                        </span>
+                        {' '}—{' '}
+                        {companyContext.urgency < 34
+                          ? 'relaxed, low-pressure outreach tone'
+                          : companyContext.urgency < 67
+                          ? 'moderate pace, mention active pipeline'
+                          : 'convey timeline pressure and competitive process'}
+                      </span>
+                    </li>
+                  )}
                 </ul>
               </div>
               <div className="border-t border-border pt-6">

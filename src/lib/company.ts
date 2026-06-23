@@ -9,6 +9,7 @@ export const EMPTY_CONTEXT: CompanyContext = {
   description: '',
   culture: [],
   tone: 50,
+  urgency: 50,
   rolesHired: [],
   values: [],
   industry: '',
@@ -24,9 +25,12 @@ export const DEMO_COMPANIES = [
   { label: 'Notion', url: 'https://notion.so', linkedin: 'https://www.linkedin.com/company/notionhq', hint: 'Productivity SaaS' },
 ] as const
 
-/** Guess LinkedIn company slug from domain (stripe.com → linkedin.com/company/stripe). */
+/** Guess LinkedIn company slug from domain (stripe.com → linkedin.com/company/stripe).
+ *  Returns '' if the URL has no dot yet (user still typing). */
 export function suggestLinkedInFromWebsite(rawUrl: string): string {
   const trimmed = rawUrl.trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '')
+  // Only suggest once the URL looks like a real domain (has at least one dot)
+  if (!trimmed.includes('.')) return ''
   const slug = trimmed.split('/')[0]?.split('.')[0]
   if (!slug || slug.length < 2) return ''
   return `https://www.linkedin.com/company/${slug}`
@@ -58,6 +62,14 @@ export function toneLabel(tone: number): string {
   return TONE_LABELS[idx]
 }
 
+export const URGENCY_LABELS = ['Low', 'Medium', 'High']
+
+export function urgencyLabel(urgency: number): string {
+  if (urgency < 34) return 'Low'
+  if (urgency < 67) return 'Medium'
+  return 'High'
+}
+
 export function mergeCompanyData(
   base: CompanyContext,
   incoming: Partial<CompanyContext>,
@@ -79,8 +91,7 @@ export function canBuildAgent(ctx: CompanyContext, targetRole: string): {
   if (!ctx.name.trim()) missing.push('company name')
   if (!ctx.description.trim()) missing.push('description')
   if (!ctx.industry.trim()) missing.push('industry')
-  if (ctx.culture.length === 0) missing.push('at least one culture trait')
-  if (ctx.values.length === 0) missing.push('at least one value')
+  if (ctx.culture.length === 0 && ctx.values.length === 0) missing.push('at least one culture trait or value')
   if (!targetRole.trim()) missing.push('target role')
   return { ok: missing.length === 0, missing }
 }

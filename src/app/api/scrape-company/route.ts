@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import Anthropic from '@anthropic-ai/sdk'
 import { anthropic, extractToolInput, WEB_SEARCH_TOOL } from '@/lib/anthropic'
 import { FAST_MODEL } from '@/lib/anthropic-models'
 import { COMPANY_PROFILE_TOOL, WEBSITE_RESEARCH_SYSTEM } from '@/lib/prompts'
@@ -19,6 +20,7 @@ interface CompanyProfilePayload {
   suggestedTone: number
   mission?: string
   companySize?: string
+  websiteUrl?: string
 }
 
 function parseOptionalLinkedIn(raw: unknown): { url: string } | { error: string } | null {
@@ -54,15 +56,47 @@ async function extractProfile(
   system: string,
   useWebSearch: boolean,
 ): Promise<CompanyProfilePayload> {
+  const tools = useWebSearch ? [WEB_SEARCH_TOOL, COMPANY_PROFILE_TOOL] : [COMPANY_PROFILE_TOOL]
   const response = await anthropic.messages.create({
     model: FAST_MODEL,
     max_tokens: 4096,
     system,
-    tools: useWebSearch ? [WEB_SEARCH_TOOL, COMPANY_PROFILE_TOOL] : [COMPANY_PROFILE_TOOL],
+    tools,
+    // With web search: use auto so Claude can search first then call submit_company_profile.
+    // Without web search: force submit_company_profile immediately.
+    tool_choice: useWebSearch
+      ? ({ type: 'auto' } as Anthropic.Messages.ToolChoiceAuto)
+      : ({ type: 'tool', name: COMPANY_PROFILE_TOOL.name } as Anthropic.Messages.ToolChoiceTool),
     messages: [{ role: 'user', content: userContent }],
   })
 
-  const data = extractToolInput<CompanyProfilePayload>(response, COMPANY_PROFILE_TOOL.name)
+  let data = extractToolInput<CompanyProfilePayload>(response, COMPANY_PROFILE_TOOL.name)
+
+  // If web search ran but submit_company_profile was never called (e.g. hit max_uses without
+  // submitting), do a second focused pass to force structured extraction from gathered text.
+  if (!data && useWebSearch) {
+    const gathered = response.content
+      .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+      .map(b => b.text)
+      .join('\n\n')
+      .trim()
+
+    const followUp = await anthropic.messages.create({
+      model: FAST_MODEL,
+      max_tokens: 2048,
+      system,
+      tools: [COMPANY_PROFILE_TOOL],
+      tool_choice: { type: 'tool', name: COMPANY_PROFILE_TOOL.name } as Anthropic.Messages.ToolChoiceTool,
+      messages: [{
+        role: 'user',
+        content: gathered
+          ? `Based on this research:\n\n${gathered}\n\nCall submit_company_profile now with all data found.`
+          : `${userContent}\n\nCall submit_company_profile with whatever partial data is available.`,
+      }],
+    })
+    data = extractToolInput<CompanyProfilePayload>(followUp, COMPANY_PROFILE_TOOL.name)
+  }
+
   if (!data?.name) throw new Error('Failed to structure company profile')
   return {
     ...data,
@@ -92,7 +126,7 @@ function normalizeProfile(
     mission: trim(data.mission ?? '', MAX.mission),
     companySize: trim(data.companySize ?? '', 40),
     suggestedTone: tone,
-    url: extras.url ?? '',
+    url: extras.url || data.websiteUrl || '',
     linkedinUrl: extras.linkedinUrl ?? '',
     hiringIntent: extras.hiringIntent ?? '',
     source,
@@ -115,30 +149,90 @@ export async function POST(req: NextRequest) {
 
   try {
     if (mode === 'url') {
-      const parsed = normalizeUrl(body.url ?? '')
-      if ('error' in parsed) {
-        return NextResponse.json({ error: parsed.error }, { status: 400 })
+      // At least one of website URL or LinkedIn URL must be provided
+      const rawUrl = (body.url as string | undefined)?.trim() ?? ''
+      const rawLinkedIn = (body.linkedinUrl as string | undefined)?.trim() ?? ''
+
+      if (!rawUrl && !rawLinkedIn) {
+        return NextResponse.json({ error: 'Provide a website URL or LinkedIn page URL' }, { status: 400 })
       }
 
-      const linkedIn = parseOptionalLinkedIn(body.linkedinUrl)
+      // Validate website URL if provided
+      let websiteUrl: string | null = null
+      let websiteDomain: string | null = null
+      if (rawUrl) {
+        const parsed = normalizeUrl(rawUrl)
+        if ('error' in parsed) {
+          return NextResponse.json({ error: parsed.error }, { status: 400 })
+        }
+        websiteUrl = parsed.url
+        websiteDomain = parsed.domain
+      }
+
+      // Validate LinkedIn URL if provided
+      const linkedIn = rawLinkedIn ? parseOptionalLinkedIn(rawLinkedIn) : null
       if (linkedIn && 'error' in linkedIn) {
         return NextResponse.json({ error: linkedIn.error }, { status: 400 })
       }
       const linkedinUrl = linkedIn && !('error' in linkedIn) ? linkedIn.url : null
 
-      const data = await extractProfile(
-        `Research the company at "${parsed.url}" (domain: ${parsed.domain}).
-${buildLinkedInResearchBlock(linkedinUrl)}
+      const buildPrompt = (website: string | null, li: string | null) => {
+        if (website && li) {
+          return `Research the company at "${website}".
+${buildLinkedInResearchBlock(li)}
 
 Steps:
-1. Read the company's official website for description, mission, and any explicitly stated culture/values.
-${linkedinUrl ? '2. Read the LinkedIn page above for size, About, and supplemental facts.' : '2. No LinkedIn provided — use website only.'}
-3. Check careers/jobs page for current open roles only.
-4. Submit the structured profile. Leave culture and values as empty arrays if not explicitly written on official sources.`,
-        WEBSITE_RESEARCH_SYSTEM,
+1. Visit "${website}" — read the About, Mission, Culture, Values pages.
+2. Visit the LinkedIn page above for employee count and About section. If LinkedIn is inaccessible or blocked, skip it.
+3. Check the careers/jobs page (try /careers, /jobs) for current open roles.
+4. Call submit_company_profile with all data found. Use empty arrays for fields not found on official sources.`
+        }
+        if (li && !website) {
+          return `Research the company from their LinkedIn page: "${li}".
+No website URL was provided — use LinkedIn as the primary source.
+
+Steps:
+1. Visit the LinkedIn page above for company name, description, industry, size, About, culture, and values.
+2. Try to find and visit the official website linked from the LinkedIn page for additional details.
+3. Call submit_company_profile with all data found. Use empty arrays for fields not found.`
+        }
+        // website only
+        return `Research the company at "${website}".
+No LinkedIn URL was provided. Research only from the official website.
+
+Steps:
+1. Visit "${website}" — read the About, Mission, Culture, Values pages.
+2. Check the careers/jobs page (try /careers, /jobs) for current open roles.
+3. Call submit_company_profile with all data found. Use empty arrays for fields not found on official sources.`
+      }
+
+      let data: CompanyProfilePayload
+      try {
+        data = await extractProfile(buildPrompt(websiteUrl, linkedinUrl), WEBSITE_RESEARCH_SYSTEM, true)
+      } catch (firstErr) {
+        // If both sources were provided and the attempt failed, retry with website only
+        if (websiteUrl && linkedinUrl) {
+          console.warn('[scrape-company] Retrying without LinkedIn after error:', (firstErr as Error).message)
+          data = await extractProfile(buildPrompt(websiteUrl, null), WEBSITE_RESEARCH_SYSTEM, true)
+        }
+        // If only LinkedIn was provided and it failed, retry using the company name from the LinkedIn slug
+        else if (linkedinUrl && !websiteUrl) {
+          const slug = linkedinUrl.split('/company/')[1]?.replace(/\/$/, '') ?? ''
+          console.warn('[scrape-company] LinkedIn-only attempt failed, retrying by company name:', slug)
+          data = await extractProfile(
+            `Research the company named "${slug}" (from LinkedIn: ${linkedinUrl}). Find their website and official information. Call submit_company_profile with whatever data you can find.`,
+            WEBSITE_RESEARCH_SYSTEM,
+            true,
+          )
+        } else {
+          throw firstErr
+        }
+      }
+      return NextResponse.json(normalizeProfile(
+        data, 'url',
+        { url: websiteUrl ?? '', linkedinUrl: linkedinUrl ?? '' },
         true,
-      )
-      return NextResponse.json(normalizeProfile(data, 'url', { url: parsed.url, linkedinUrl: linkedinUrl ?? '' }, true))
+      ))
     }
 
     if (mode === 'name') {
