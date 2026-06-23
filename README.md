@@ -158,34 +158,39 @@ public/
 
 **Template fallback is generic.** When Anthropic is rate-limited during configure, the fallback agent is built from deterministic templates rather than Claude. It works and the demo continues, but the persona depth is lower. A warning banner makes this transparent.
 
-**LinkedIn-only research drops discovered websites.** If you provide only a LinkedIn URL, any website Claude discovers during research is currently not surfaced back to the form. (This is a known limitation — fix involves adding `websiteUrl` to the extraction schema.)
+**LinkedIn-only research drops discovered websites.** If you provide only a LinkedIn URL, any website Claude discovers during research is currently not surfaced back to the form. This is a known limitation; fix involves adding `websiteUrl` to the extraction schema.
+
+**Limited end-to-end testing.** API credits were constrained during development, so the full flow could not be stress-tested across a wide range of company configurations and edge cases. The core path works reliably; some less-travelled combinations may surface rough edges.
 
 ---
 
-## Surprises caught along the way
+## Surprises we added
 
-Things that only show up when you actually run the thing — not during planning.
+Features that weren't in the brief but felt necessary once the core was working.
 
-**LinkedIn URL wiped on backspace.**
-`suggestLinkedInFromWebsite(v)` returns `""` while the user is mid-typing (e.g. `"stripe"` before the dot). The original code called `setLinkedinUrl(suggested)` unconditionally, so every backspace keystroke silently wiped the auto-filled LinkedIn field. Fixed by only updating when a valid suggestion exists, and tracking whether the user manually touched the field to stop auto-fill from fighting them.
+**Streaming bio.**
+Waiting 40 seconds staring at a spinner kills the demo. The agent bio now streams word-by-word within ~2 seconds of clicking Build, so you're reading a real recruiter take shape while the rest of the config generates in the background.
 
-**Tool-use with `type: 'any'` didn't guarantee profile submission.**
-`{ type: 'any' }` forces Claude to call *some* tool — but not specifically `submit_company_profile`. When Claude exhausted its web search budget (5 uses) without ever calling the profile tool, `extractToolInput` found nothing and threw `"Failed to structure company profile"`. Fixed with a two-pass approach: if the first pass didn't call the profile tool, a second call with `{ type: 'tool', name: 'submit_company_profile' }` forces structured extraction from the gathered text.
+**Gender-matched 3D avatar.**
+Claude autonomously picks the recruiter's gender as part of persona configuration. A matching 3D cartoon avatar (male or female, blue blazer) is selected and shown consistently across the profile header, every outreach message, and every chat bubble in the simulator. Small detail, big personality lift.
 
-**LinkedIn-only research silently dropped discovered websites.**
-When only a LinkedIn URL was provided, any website Claude found during research was never surfaced back. `normalizeProfile` always set `url: extras.url ?? ''` and `extras.url` was always null in that mode. Fixed by adding `websiteUrl` to the extraction schema so discovered URLs come through.
+**Live reasoning stream.**
+Extended thinking (6,000 tokens) streams into a "Thinking..." panel before each recruiter reply. You see the agent working through candidate read, detected signal, strategy, and risk flags in real time. Full thinking is also expandable per message after the fact.
 
-**Concern badges overflowing the sidebar.**
-shadcn `Badge` defaults to `whitespace-nowrap`. Long concern strings like "Worried about compensation bands relative to market" blew out of the sidebar panel. Fixed with `whitespace-normal break-words max-w-full` on the badge className.
+**Dual quality audit with auto-retry.**
+After generating the persona and outreach, a second Claude instance evaluates the output against 5 criteria independently. Any failure injects the specific failing criteria back into the prompt and regenerates once. The score is displayed on the Outreach tab so the quality gate is visible, not hidden.
 
-**Avatar images were blank — wrong file extension.**
-Initial avatar code used `.jpg` paths. The uploaded files were `.png`. The browser loaded silently broken images with no console error (the `onError` fallback showed initials instead). Fixed by correcting the paths and verifying the files existed.
+**Warmth tracker with sparkline chart.**
+A 0-100% warmth score updates after every conversation turn based on sentiment, with a live SVG sparkline showing the trajectory over time. Color shifts from green to amber to red. Gives an at-a-glance read on how the conversation is going without reading every message.
 
-**Agent quality retry threshold was too lenient.**
-The original auto-retry fired only when `score < 3` — meaning a 3/5 or 4/5 passed without retry. In practice this produced outreach messages that were generic or repeated subject lines. Lowered to `score < 5` so any failing criterion triggers a retry, consistently hitting 5/5 in testing.
+**Handoff brief.**
+After a few exchanges, a one-click "Generate" button produces a structured recruiter handoff document: key context, objections raised, warmth level, and recommended next steps. Haiku writes it from the full conversation history.
 
-**Warmth badges overflowing on mobile widths.**
-The candidate persona concerns panel rendered long phrases as single-line badges that pushed the sidebar wider than the viewport. Same `whitespace-normal break-words` fix applied to every badge in flex containers throughout the simulator.
+**AI culture and values suggestions.**
+When web research can't find explicit culture or values (common with smaller companies), a second Haiku call auto-generates context-aware chip suggestions on mount, marked with a ✦ to distinguish them from researched data. Keeps the form useful even when sources are thin.
+
+**Rate limiting with client retry and template fallback.**
+A 30 req/min in-memory rate limiter runs server-side. On 429 or 503, the client retries automatically up to 4 times with a visible countdown. If the Anthropic API is unavailable entirely during configure, a deterministic template agent is built locally from the company profile so the demo never hard-fails.
 
 ---
 
