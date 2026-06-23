@@ -23,6 +23,7 @@ export interface AgentPersonality {
   signatureTrait: string
   reasoningTrace?: string
   archetype?: string
+  gender?: 'male' | 'female'
 }
 
 export interface OutreachMessage {

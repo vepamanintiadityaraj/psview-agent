@@ -2,10 +2,10 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { CompanyContext } from '@/types'
-import { EMPTY_CONTEXT, suggestLinkedInFromWebsite } from '@/lib/company'
+import { EMPTY_CONTEXT } from '@/lib/company'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Bot, Send, SkipForward } from 'lucide-react'
+import { Bot, Send } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface ChatMessage {
@@ -13,15 +13,14 @@ interface ChatMessage {
   text: string
 }
 
-type CtxWithRole = CompanyContext & { targetRole: string }
+type Ctx = CompanyContext
 
 interface Step {
   id: string
-  question: (ctx: CtxWithRole) => string
+  question: (ctx: Ctx) => string
   placeholder: string
-  optional?: boolean
   multiline?: boolean
-  apply: (answer: string, ctx: CtxWithRole) => CtxWithRole
+  apply: (answer: string, ctx: Ctx) => Ctx
 }
 
 const STEPS: Step[] = [
@@ -34,91 +33,39 @@ const STEPS: Step[] = [
   {
     id: 'description',
     question: ctx => `What does ${ctx.name} do? 2–3 sentences — products, customers, market position.`,
-    placeholder: 'We build payment infrastructure that helps developers accept money…',
+    placeholder: 'We build payment infrastructure that helps developers accept money globally…',
     multiline: true,
     apply: (a, ctx) => ({ ...ctx, description: a.trim() }),
   },
   {
-    id: 'industry',
-    question: ctx => `What industry is ${ctx.name} in?`,
-    placeholder: 'e.g. Fintech, HR Tech, Developer Tools, SaaS',
-    apply: (a, ctx) => ({ ...ctx, industry: a.trim() }),
+    id: 'companySize',
+    question: ctx => `How many people work at ${ctx.name}?`,
+    placeholder: 'e.g. ~500, 10,000+, early-stage (~30)',
+    apply: (a, ctx) => ({ ...ctx, companySize: a.trim() }),
   },
   {
-    id: 'url',
-    question: () => "What's the company website? (optional)",
-    placeholder: 'https://company.com',
-    optional: true,
+    id: 'cultureValues',
+    question: ctx => `How would you describe ${ctx.name}'s culture and values? A few words or phrases, comma-separated.`,
+    placeholder: 'Fast-paced, ownership, transparency, customer-first…',
+    multiline: true,
     apply: (a, ctx) => {
-      const url = a.trim()
-      const linkedin = !ctx.linkedinUrl && url ? suggestLinkedInFromWebsite(url) : ctx.linkedinUrl
-      return { ...ctx, url, linkedinUrl: linkedin || ctx.linkedinUrl }
+      const tags = a.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
+      return { ...ctx, culture: tags, values: tags }
     },
-  },
-  {
-    id: 'linkedinUrl',
-    question: () => "What's their LinkedIn company page? (optional)",
-    placeholder: 'linkedin.com/company/...',
-    optional: true,
-    apply: (a, ctx) => ({ ...ctx, linkedinUrl: a.trim() }),
-  },
-  {
-    id: 'culture',
-    question: ctx => `How would you describe the culture at ${ctx.name}? List a few traits, comma-separated.`,
-    placeholder: 'Fast-paced, collaborative, data-driven, remote-first…',
-    multiline: true,
-    apply: (a, ctx) => ({
-      ...ctx,
-      culture: a.split(/[,\n]/).map(s => s.trim()).filter(Boolean),
-    }),
-  },
-  {
-    id: 'values',
-    question: ctx => `What does ${ctx.name} stand for? What are their core values?`,
-    placeholder: 'Transparency, ownership, speed, customer obsession…',
-    multiline: true,
-    apply: (a, ctx) => ({
-      ...ctx,
-      values: a.split(/[,\n]/).map(s => s.trim()).filter(Boolean),
-    }),
-  },
-  {
-    id: 'rolesHired',
-    question: ctx => `What roles does ${ctx.name} typically hire for? Comma-separated. (optional)`,
-    placeholder: 'Software Engineer, Product Manager, Data Scientist…',
-    optional: true,
-    apply: (a, ctx) => ({
-      ...ctx,
-      rolesHired: a.split(/[,\n]/).map(s => s.trim()).filter(Boolean),
-    }),
-  },
-  {
-    id: 'targetRole',
-    question: () => 'Which specific role are you recruiting for in this session?',
-    placeholder: 'e.g. Senior Software Engineer',
-    apply: (a, ctx) => ({ ...ctx, targetRole: a.trim() }),
-  },
-  {
-    id: 'hiringIntent',
-    question: ctx => `Any hiring intent for the ${ctx.targetRole} role? What makes the ideal candidate? (optional)`,
-    placeholder: 'Looking for someone with 5+ years in distributed systems…',
-    multiline: true,
-    optional: true,
-    apply: (a, ctx) => ({ ...ctx, hiringIntent: a.trim() }),
   },
 ]
 
 interface Props {
-  onDone: (context: CompanyContext, targetRole: string) => void
+  onDone: (context: CompanyContext) => void
 }
 
 export default function ManualChatForm({ onDone }: Props) {
-  const initial: CtxWithRole = { ...EMPTY_CONTEXT, source: 'manual', targetRole: '' }
+  const initial: Ctx = { ...EMPTY_CONTEXT, source: 'manual' }
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'bot', text: STEPS[0].question(initial) },
   ])
   const [stepIdx, setStepIdx] = useState(0)
-  const [ctx, setCtx] = useState<CtxWithRole>(initial)
+  const [ctx, setCtx] = useState<Ctx>(initial)
   const [input, setInput] = useState('')
   const [done, setDone] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -129,33 +76,33 @@ export default function ManualChatForm({ onDone }: Props) {
     if (!done) inputRef.current?.focus()
   }, [messages, done])
 
-  function advance(answer: string, skip = false) {
-    const step = STEPS[stepIdx]
+  function advance(answer: string) {
     const trimmed = answer.trim()
-    if (!trimmed && !skip) return
+    if (!trimmed) return
 
-    const newCtx = skip ? ctx : step.apply(trimmed, ctx)
+    const step = STEPS[stepIdx]
+    const newCtx = step.apply(trimmed, ctx)
     setCtx(newCtx)
     setInput('')
 
-    const userText = skip ? '(skipped)' : trimmed
     const nextIdx = stepIdx + 1
 
     if (nextIdx >= STEPS.length) {
       setMessages(prev => [
         ...prev,
-        { role: 'user', text: userText },
+        { role: 'user', text: trimmed },
         {
           role: 'bot',
-          text: `Perfect — I have everything I need to build the agent for ${newCtx.name}. Click "Review & Build" to continue.`,
+          text: `Perfect — I have everything I need to get started with ${newCtx.name}. Click "Continue to Review" to fill in the remaining details and build the agent.`,
         },
       ])
       setStepIdx(nextIdx)
       setDone(true)
+      setCtx(newCtx)
     } else {
       setMessages(prev => [
         ...prev,
-        { role: 'user', text: userText },
+        { role: 'user', text: trimmed },
         { role: 'bot', text: STEPS[nextIdx].question(newCtx) },
       ])
       setStepIdx(nextIdx)
@@ -165,7 +112,7 @@ export default function ManualChatForm({ onDone }: Props) {
   const currentStep = STEPS[stepIdx]
 
   return (
-    <div className="panel flex flex-col" style={{ minHeight: 420, maxHeight: 520 }}>
+    <div className="panel flex flex-col" style={{ minHeight: 380, maxHeight: 480 }}>
       <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
         {messages.map((msg, i) => (
           <div key={i} className={cn('flex gap-2 items-end', msg.role === 'user' && 'flex-row-reverse')}>
@@ -189,8 +136,8 @@ export default function ManualChatForm({ onDone }: Props) {
 
       <div className="border-t border-border p-3 space-y-2 shrink-0">
         {done ? (
-          <Button className="w-full" onClick={() => onDone({ ...ctx }, ctx.targetRole)}>
-            Review &amp; Build →
+          <Button className="w-full" onClick={() => onDone(ctx)}>
+            Continue to Review →
           </Button>
         ) : (
           <>
@@ -208,14 +155,8 @@ export default function ManualChatForm({ onDone }: Props) {
               rows={currentStep?.multiline ? 2 : 1}
               className="resize-none"
             />
-            <div className="flex gap-2">
-              {currentStep?.optional && (
-                <Button variant="outline" size="sm" onClick={() => advance('', true)} className="text-xs">
-                  <SkipForward className="w-3 h-3 mr-1" />
-                  Skip
-                </Button>
-              )}
-              <Button size="sm" onClick={() => advance(input)} disabled={!input.trim()} className="ml-auto">
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => advance(input)} disabled={!input.trim()}>
                 <Send className="w-3 h-3 mr-1.5" />
                 Send
               </Button>

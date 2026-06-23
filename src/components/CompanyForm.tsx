@@ -241,9 +241,8 @@ export default function CompanyForm({ onComplete }: Props) {
     setTargetRole('')
   }
 
-  function handleManualDone(ctx: CompanyContext, role: string) {
+  function handleManualDone(ctx: CompanyContext) {
     setContext(ctx)
-    setTargetRole(role)
     setShowForm(true)
   }
 
@@ -348,7 +347,7 @@ export default function CompanyForm({ onComplete }: Props) {
       {/* Manual mode — chat onboarding */}
       {entryMode === 'manual' && !showForm && (
         <div className="mb-6">
-          <ManualChatForm onDone={handleManualDone} />
+          <ManualChatForm onDone={(ctx) => handleManualDone(ctx)} />
         </div>
       )}
 

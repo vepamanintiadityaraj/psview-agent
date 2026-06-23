@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { AgentConfig } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -74,6 +74,9 @@ export default function AgentProfile({ agentConfig, onSimulate, onBack }: Props)
   const [tab, setTab] = useState<ProfileTab>('about')
   const [showReasoning, setShowReasoning] = useState(false)
   const [expandedMsg, setExpandedMsg] = useState<string | null>(messageSequence[0]?.id ?? null)
+  const [avatarError, setAvatarError] = useState(false)
+  const avatarSrc = personality.gender === 'female' ? '/avatars/female.jpg' : '/avatars/male.jpg'
+  const handleAvatarError = useCallback(() => setAvatarError(true), [])
 
   const tabs: { id: ProfileTab; label: string }[] = [
     { id: 'about', label: 'About' },
@@ -112,8 +115,17 @@ export default function AgentProfile({ agentConfig, onSimulate, onBack }: Props)
 
           <div className="px-6 pb-2">
             <div className="-mt-12 mb-3 flex justify-between items-end">
-              <div className="w-24 h-24 rounded-full border-4 border-white bg-[#e8e8e8] flex items-center justify-center text-xl font-semibold text-[#666]">
-                {initials(personality.name)}
+              <div className="w-24 h-24 rounded-full border-4 border-white bg-[#e8e8e8] overflow-hidden flex items-center justify-center text-xl font-semibold text-[#666] shrink-0">
+                {!avatarError ? (
+                  <img
+                    src={avatarSrc}
+                    alt={personality.name}
+                    onError={handleAvatarError}
+                    className="w-full h-full object-cover object-top"
+                  />
+                ) : (
+                  initials(personality.name)
+                )}
               </div>
               <Button onClick={onSimulate} className="mb-1 bg-[#0a66c2] hover:bg-[#004182]">
                 <MessageSquare className="w-4 h-4 mr-2" />
@@ -249,8 +261,12 @@ export default function AgentProfile({ agentConfig, onSimulate, onBack }: Props)
                 return (
                   <div key={msg.id} className="bg-white rounded-lg border border-border shadow-sm overflow-hidden">
                     <div className="p-4 flex gap-3">
-                      <div className="w-12 h-12 rounded-full bg-[#0a66c2]/10 text-[#0a66c2] flex items-center justify-center text-sm font-semibold shrink-0">
-                        {initials(personality.name)}
+                      <div className="w-12 h-12 rounded-full bg-[#0a66c2]/10 overflow-hidden flex items-center justify-center text-sm font-semibold shrink-0 text-[#0a66c2]">
+                        {!avatarError ? (
+                          <img src={avatarSrc} alt={personality.name} onError={handleAvatarError} className="w-full h-full object-cover object-top" />
+                        ) : (
+                          initials(personality.name)
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">

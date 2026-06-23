@@ -26,7 +26,7 @@ function buildUserPrompt(companyContext: CompanyContext, targetRole: string): st
   return `Configure yourself autonomously to engage candidates for the ${targetRole} role at ${companyContext.name}.${intentNote}
 
 From the company context alone, decide:
-1. Who you are — human name, role title, archetype label (e.g. "The Technical Collaborator"), bio rooted in ${companyContext.name}'s culture, 5 communication rules, 3 things you never do, signature trait.
+1. Who you are — human name, gender (male or female), role title, archetype label (e.g. "The Technical Collaborator"), bio rooted in ${companyContext.name}'s culture, 5 communication rules, 3 things you never do, signature trait.
 2. A ${OUTREACH_MESSAGE_COUNT}-message outreach sequence for a ${targetRole} candidate (msg_1–msg_${OUTREACH_MESSAGE_COUNT}): subject, body (100–130 words each), intent, tone.
    - msg_1: initial personalized outreach
    - msg_2: follow-up with role detail

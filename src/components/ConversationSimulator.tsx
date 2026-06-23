@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { AgentConfig, CandidatePersona, ConversationMessage } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -492,6 +492,9 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
     }
   }
 
+  const avatarSrc = personality.gender === 'female' ? '/avatars/female.jpg' : '/avatars/male.jpg'
+  const [avatarError, setAvatarError] = useState(false)
+
   const isStreaming = streamingIdx !== null
   const agentMessageCount = messages.filter(m => m.role === 'agent' && !m.content.startsWith('__error__')).length
   const showBriefButton = agentMessageCount >= 2
@@ -587,11 +590,13 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
                 {messages.map((msg, i) => (
                   <div key={i} className={cn('flex gap-3', msg.role === 'candidate' && 'flex-row-reverse')}>
                     <div className={cn(
-                      'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5',
+                      'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 overflow-hidden',
                       msg.role === 'agent' ? 'bg-muted' : 'bg-foreground text-background',
                     )}>
                       {msg.role === 'agent'
-                        ? <Bot className="w-4 h-4 text-muted-foreground" />
+                        ? (!avatarError
+                            ? <img src={avatarSrc} alt={personality.name} onError={() => setAvatarError(true)} className="w-full h-full object-cover object-top" />
+                            : <Bot className="w-4 h-4 text-muted-foreground" />)
                         : <User className="w-4 h-4" />}
                     </div>
 

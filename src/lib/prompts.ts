@@ -133,8 +133,9 @@ export const AGENT_CONFIG_TOOL: Anthropic.Tool = {
           communicationRules: { type: 'array', items: { type: 'string' } },
           avoidList: { type: 'array', items: { type: 'string' } },
           signatureTrait: { type: 'string' },
+          gender: { type: 'string', enum: ['male', 'female'], description: 'Gender of this recruiter persona — determines the avatar shown in the UI.' },
         },
-        required: ['name', 'role', 'bio', 'archetype', 'communicationRules', 'avoidList', 'signatureTrait'],
+        required: ['name', 'role', 'bio', 'archetype', 'communicationRules', 'avoidList', 'signatureTrait', 'gender'],
       },
       messageSequence: {
         type: 'array',
