@@ -1,147 +1,201 @@
 # PSView — Autonomous Recruiting Agent
 
-A mini web app that configures an AI recruiting agent from company context and simulates candidate conversations — no step-by-step prompting, no templates.
+A full-stack AI demo where Claude researches a company, autonomously configures a recruiter persona, and simulates a realistic candidate conversation — no templates, no step-by-step prompting.
 
-**Stack:** Next.js 16 · TypeScript · Tailwind CSS · shadcn/ui · Claude Sonnet 4.6 (Anthropic)
-
----
-
-## What I built
-
-Three screens, one flow:
-
-### 1. Company Onboarding
-
-Two ways to capture company context:
-
-- **Website URL** — Claude web search + LinkedIn pulls real company data (name, description, culture, values, roles, size, mission). LinkedIn is auto-suggested from the domain as you type.
-- **Manual entry** — a 4-question chat wizard (name → description → size → culture & values), then a full review form with AI-suggested culture/values chips marked with ✦.
-
-Captures: who they are, culture, values, communication tone, hiring urgency, company size, mission, hiring intent, and target role.
-
-### 2. Agent Profile
-
-The agent configures itself: picks a name, chooses a gender (which selects the avatar), writes its own bio, defines its communication rules and no-go list, then generates a 5-message outreach sequence (Intro → Follow-up → Qualify → Value Pitch → Close). A client-side + server-side quality evaluator scores 5 criteria; any failure triggers an automatic retry with the failure list fed back to Claude.
-
-### 3. Conversation Simulator
-
-Chat UI where you play the candidate. The agent replies in character with:
-
-- **Streaming text** with live extended thinking panel ("Thinking…" while tokens arrive)
-- **Candidate memory** — warmth score (%), sparkline timeline chart, objections count, strategy mode
-- **Handoff brief** — auto-generated structured recruiter brief after 2 agent turns
-- **Candidate persona** — generate random or fill manually; name, role, company, background, concerns, tone
-- Quick reply chips + "Test unexpected replies" prompts
+> Built entirely with [Claude Code](https://claude.ai/code) (Anthropic's CLI) + [Cursor](https://cursor.sh). All AI features run against the [Anthropic API](https://www.anthropic.com/).
 
 ---
 
-## How to run
+## What it does
 
-```bash
-cp .env.example .env.local
-# Add your ANTHROPIC_API_KEY to .env.local
+Three screens. One autonomous pipeline.
 
-npm install
-npm run dev
-# Open http://localhost:3000
-```
+### Step 1 — Company context
+
+You give it a company. It figures out the rest.
+
+- **Website + LinkedIn research** — Claude uses web search to pull the company's description, culture, values, mission, size, and open roles from both sources simultaneously. LinkedIn is auto-suggested as you type the domain.
+- **Manual chat wizard** — if there's no public website, a 4-question conversational wizard (name → description → size → culture & values) walks you through it, then opens a full review form.
+- **AI culture & values suggestions** — when research can't find culture or values, a second Haiku call auto-generates context-aware chip suggestions on mount, marked with ✦ to distinguish them from researched data.
+- **Demo companies** — Stripe, Notion, and PSView load with one click and auto-research immediately.
+- **Hiring urgency slider** — controls how urgently the recruiter frames outreach (Low → High, affects the generated sequence tone).
+
+### Step 2 — Agent self-configuration
+
+Claude builds a recruiter from scratch — no templates, no defaults.
+
+- **Fully autonomous persona** — Claude picks the name, gender, archetype, bio, role title, communication rules, avoid list, and signature trait from the company context alone.
+- **Gender-matched 3D avatar** — a photo-realistic cartoon recruiter is selected by the gender Claude chose. Shown in the profile header, each outreach message, and every chat bubble in Step 3.
+- **Streaming bio** — the recruiter bio appears word-by-word within ~2 seconds of clicking Build, so there's something to read rather than a blank spinner for 40s.
+- **5-message outreach sequence** — Intro → Follow-up → Qualify → Value Pitch → Close. Every message is tailored to the specific company and target role.
+- **Dual quality audit** — a second Claude (Haiku) call evaluates 5 criteria independently. Any failure injects the specific failures back into the prompt and auto-retries once. The 5/5 score is shown on the Outreach tab.
+- **Model fallback chain** — tries Sonnet first, falls through to Haiku on quota errors so the build rarely fails outright.
+
+### Step 3 — Conversation simulation
+
+You play the candidate. The agent plays itself.
+
+- **Streaming replies with live reasoning** — Claude's extended thinking (6,000 tokens) streams into a "Thinking…" panel before each reply, then disappears when the response starts. Full thinking is expandable per message via "Show reasoning."
+- **Warmth tracker** — a 0–100% warmth score updates after every turn based on sentiment, with a live SVG sparkline chart showing trajectory. Color shifts green → amber → red.
+- **Strategy mode** — the agent shifts between Standard, Discovery, Objection-Handling, and Closing modes based on how the conversation is evolving.
+- **Candidate persona** — generate a random fictional candidate (Haiku), or fill in name, current role, company, background, concerns, and tone manually.
+- **Handoff brief** — after 2 agent messages, a "Generate" button produces a structured recruiter handoff brief with key context, objections raised, and recommended next steps.
+- **Quick reply chips** — one-click common responses and "test unexpected replies" to probe how the agent handles curveballs.
 
 ---
 
-## Architecture
+## Robustness & rate limiting
 
-```
-URL / Manual input
-  └─ /api/scrape-company        → Claude Haiku + web search → company profile JSON
-       └─ CompanyForm            → User confirms / edits
-            └─ /api/configure-agent    → Sonnet → personality + outreach + eval + auto-retry
-                 └─ AgentProfile       → Persona · 5-message sequence · quality score · reasoning
-                      └─ /api/conversation    → Sonnet streaming SSE + extended thinking (6k tokens)
-                           └─ ConversationSimulator  → Live chat · memory · brief · persona
-```
+These aren't after-thoughts — they're baked into the core flow.
 
-**Three agent subsystems:**
+| Feature | How it works |
+|---------|-------------|
+| **IP rate limiter** | 30 requests per IP per minute, in-memory with automatic pruning. Returns 429 before hitting Anthropic. |
+| **Client retry with countdown** | On 429 or 503, the client automatically retries up to 4 times with a visible "Retrying in 5s…" countdown. No user action needed. |
+| **Server-side error classification** | Distinguishes quota limits, transient overloads, and hard failures — different retry delays for each. |
+| **Template fallback agent** | If the Anthropic API is unavailable during configure, a deterministic template agent is built locally from the company profile (culture, values, tone, size). The demo continues uninterrupted with a warning banner. |
+| **Agent config auto-retry** | If the quality eval scores < 5/5, failures are fed back into the prompt and Claude regenerates once targeting only the failing criteria. |
+| **Two-pass company extraction** | If the first research call doesn't produce a structured profile, a second forced extraction call runs on the gathered text. Research almost never silently fails. |
 
-- **PersonalityEngine** — Company context → agent name, gender, bio, rules, avoidance list, archetype, signature trait
-- **StrategyEngine** — 5-message outreach campaign with intent labels and quality scoring
-- **ConversationEngine** — Stateful dialogue, extended thinking, sentiment/stage inference, warmth tracking
+---
 
-**Supporting APIs:**
+## Tech stack
+
+| Layer | Technology |
+|-------|-----------|
+| Framework | Next.js 16 (App Router) |
+| Language | TypeScript |
+| Styling | Tailwind CSS v4 + shadcn/ui |
+| AI | Anthropic Claude API (`@anthropic-ai/sdk`) |
+| Models | `claude-sonnet-4-6` · `claude-haiku-4-5-20251001` |
+| Streaming | Server-Sent Events (SSE) — configure + conversation routes |
+| IDE | Cursor |
+| AI pair programmer | Claude Code (Anthropic CLI) |
+
+### Models by route
 
 | Route | Model | Purpose |
 |-------|-------|---------|
-| `/api/scrape-company` | Haiku | Research company from URL / LinkedIn |
-| `/api/configure-agent` | Sonnet → Haiku fallback | Generate + eval + auto-retry pipeline |
-| `/api/conversation` | Sonnet (thinking=6000) | SSE stream: thinking · delta · done · error |
-| `/api/generate-persona` | Haiku | Generate fictional candidate profile |
-| `/api/handoff-brief` | Haiku | Write structured recruiter handoff brief |
-| `/api/suggest-culture-values` | Haiku | AI culture/values chip suggestions |
+| `POST /api/scrape-company` | Haiku + web search | Research from URL + LinkedIn |
+| `POST /api/configure-agent` | Sonnet → Haiku fallback | Stream persona + outreach; eval + auto-retry |
+| `POST /api/conversation` | Sonnet (thinking = 6k tokens) | Streaming chat with extended reasoning |
+| `POST /api/generate-persona` | Haiku | Random fictional candidate profile |
+| `POST /api/handoff-brief` | Haiku | Structured recruiter handoff document |
+| `POST /api/suggest-culture-values` | Haiku | Context-aware culture/values chip suggestions |
 
 ---
 
-## Key decisions
+## Setup
 
-| Decision | Reason |
-|----------|--------|
-| Claude Sonnet 4.6 + extended thinking | Visible chain-of-thought on configure + every chat turn |
-| Anthropic web search tool | Company research from live web, not domain guessing |
-| Streaming Messages API | Token-by-token replies and thinking during simulation |
-| Tool-use structured output | Reliable JSON for company scrape and agent config |
-| Two-pass web search extraction | First pass lets Claude search freely; second pass forces `submit_company_profile` if it wasn't called after exhausting search budget |
-| Template fallback | Demo still works if API is rate-limited |
+```bash
+git clone https://github.com/your-username/psview-agent
+cd psview-agent
+npm install
 
----
+cp .env.example .env.local
+# Paste your key:
+# ANTHROPIC_API_KEY=sk-ant-...
 
-## What makes it intelligent?
+npm run dev
+# → http://localhost:3000
+```
 
-> The agent uses Claude extended thinking to reason before every decision — configuration and conversation — and web search to research the company it's representing. It generates its own operational constraints (name, bio, rules, avoidance list), tracks conversation warmth and strategy over time, and adapts its approach based on candidate signals, with all reasoning visible as live thinking tokens plus structured candidate reads and next-move strategy notes.
-
----
-
-## Edge case handling
-
-| Scenario | Behavior |
-|----------|----------|
-| No website URL | LinkedIn-only research; discovered website URL is captured from tool output |
-| Invalid URL | Validation error shown; form remains available |
-| Research fails (both sources) | Retry with website only; if that fails, user fills profile manually |
-| `submit_company_profile` not called | Two-pass fallback: second forced extraction call using gathered text |
-| API rate limit | Retries with backoff; template agent fallback on configure |
-| Missing culture / values | Banner shown in Culture & Values panel only; AI suggestions auto-loaded |
-| Partial candidate persona (no `likelyConcerns`) | Optional-chained safely; conversation system prompt builds without crash |
-| LinkedIn URL auto-fill mid-edit | Only updates when a valid suggestion exists or field is fully cleared — never wipes on backspace |
+Only one environment variable is required. Get an API key at [console.anthropic.com](https://console.anthropic.com).
 
 ---
 
-## Surprises fixed during review
+## Project structure
 
-After a Bugbot code review pass, three pre-existing reliability bugs were found and patched:
-
-### 1. LinkedIn URL wiped on mid-edit backspace
-**Where:** `CompanyForm.tsx`  
-**Problem:** `suggestLinkedInFromWebsite(v)` returns `""` when the user is mid-way through typing (e.g. `"stripe"` with no dot yet). The old code called `setLinkedinUrl(suggested)` unconditionally, so every backspace wiped the auto-filled LinkedIn field.  
-**Fix:** Only call `setLinkedinUrl` when `suggested` is non-empty, or when the website field is fully cleared.
-
-### 2. `tool_choice: 'any'` didn't guarantee profile submission
-**Where:** `scrape-company/route.ts`  
-**Problem:** `{ type: 'any' }` forces Claude to use *some* tool but not specifically `submit_company_profile`. If Claude exhausted its `max_uses: 5` web search budget without ever calling the profile tool, `extractToolInput` found nothing and threw `"Failed to structure company profile"` — making step 1 fail silently.  
-**Fix:** Changed to `{ type: 'auto' }` (natural flow) and added a two-pass fallback: if the first pass didn't call `submit_company_profile`, a second call with `{ type: 'tool', name: 'submit_company_profile' }` forces structured extraction from the gathered text — using the same strict system prompt to preserve source rules.
-
-### 3. LinkedIn-only research discarded the discovered website
-**Where:** `scrape-company/route.ts`, `prompts.ts`  
-**Problem:** When only a LinkedIn URL was provided, `normalizeProfile` always set `url: extras.url ?? ''`, and `websiteUrl` was always `null` in that mode. Any website Claude discovered via LinkedIn was silently thrown away.  
-**Fix:** Added `websiteUrl` to `CompanyProfilePayload` and the `submit_company_profile` tool schema. `normalizeProfile` now uses `extras.url || data.websiteUrl || ''` so discovered URLs are surfaced.
+```
+src/
+  app/
+    page.tsx                      # Step router: onboard → agent → simulate
+    api/
+      scrape-company/             # Company research via Claude + web search
+      configure-agent/            # Streaming persona generation, eval, auto-retry
+      conversation/               # Streaming SSE chat with extended thinking
+      generate-persona/           # Random candidate generator
+      handoff-brief/              # Recruiter handoff document
+      suggest-culture-values/     # AI chip suggestions for missing culture/values
+  components/
+    CompanyForm.tsx               # Mode selector, URL inputs, demo buttons, streaming bio panel
+    ManualChatForm.tsx            # 4-question conversational wizard
+    CompanyDetailsForm.tsx        # Review form: merged culture/values, size badge, AI chips
+    AgentProfile.tsx              # LinkedIn-style profile, avatar, outreach tabs, quality score
+    ConversationSimulator.tsx     # Chat, memory panel, persona panel, handoff brief
+  lib/
+    anthropic.ts                  # Lazy Anthropic client + thinking configs
+    anthropic-models.ts           # Model IDs, OUTREACH_MESSAGE_COUNT
+    prompts.ts                    # System prompts, tool schemas
+    company.ts                    # EMPTY_CONTEXT, DEMO_COMPANIES, canBuildAgent
+    conversation.ts               # History management, META block parsing
+    fallback-agent.ts             # Deterministic template agent for API outages
+    ai-error.ts                   # Rate limit detection, retry delay logic
+    fetch-retry.ts                # Client retry with countdown UI
+    guard.ts                      # In-memory IP rate limiter
+    validation.ts                 # URL normalisation
+public/
+  avatars/
+    male.png                      # Male recruiter (3D cartoon, blue blazer)
+    female.png                    # Female recruiter (3D cartoon, blue blazer)
+```
 
 ---
 
-## Known limitations
+## Drawbacks & known limitations
 
-- No conversation persistence — refresh resets the chat
-- Eval harness not wired to CI
+**In-memory rate limiter.** The 30 req/min limiter lives in a `Map` on the server process. It resets on server restart and doesn't work across multiple instances. A real production deployment would use Redis or an edge KV store.
 
-## What I'd do with more time
+**LinkedIn research is inconsistent.** Claude's web search tool returns inconsistent results for LinkedIn company pages depending on the company's public profile completeness. Culture and values are frequently missing — the AI suggestions feature exists specifically because of this.
 
-- Add prompt caching on the system prompt
-- Wire a golden-set eval into CI to catch personality drift
-- Persist conversations to Supabase with a shareable link
-- Fix the build-button footer that suppresses the culture requirement message when it's the only remaining blocker
+**Latency is real.** Company research takes 15–25s. Agent config takes 30–50s (the streaming bio makes this feel faster by showing content within ~2s). Conversation replies take 10–20s with extended thinking. These are upstream API round-trip times. Demo company pre-caching would address the research wait.
+
+**No authentication.** Anyone with the URL can use the app. The rate limiter is the only protection against abuse.
+
+**No multi-session or multi-candidate.** One agent, one candidate conversation per browser session. No branching, no A/B persona comparison.
+
+**Template fallback is generic.** When Anthropic is rate-limited during configure, the fallback agent is built from deterministic templates rather than Claude. It works and the demo continues, but the persona depth is lower. A warning banner makes this transparent.
+
+**LinkedIn-only research drops discovered websites.** If you provide only a LinkedIn URL, any website Claude discovers during research is currently not surfaced back to the form. (This is a known limitation — fix involves adding `websiteUrl` to the extraction schema.)
+
+---
+
+## Surprises caught along the way
+
+Things that only show up when you actually run the thing — not during planning.
+
+**LinkedIn URL wiped on backspace.**
+`suggestLinkedInFromWebsite(v)` returns `""` while the user is mid-typing (e.g. `"stripe"` before the dot). The original code called `setLinkedinUrl(suggested)` unconditionally, so every backspace keystroke silently wiped the auto-filled LinkedIn field. Fixed by only updating when a valid suggestion exists, and tracking whether the user manually touched the field to stop auto-fill from fighting them.
+
+**Tool-use with `type: 'any'` didn't guarantee profile submission.**
+`{ type: 'any' }` forces Claude to call *some* tool — but not specifically `submit_company_profile`. When Claude exhausted its web search budget (5 uses) without ever calling the profile tool, `extractToolInput` found nothing and threw `"Failed to structure company profile"`. Fixed with a two-pass approach: if the first pass didn't call the profile tool, a second call with `{ type: 'tool', name: 'submit_company_profile' }` forces structured extraction from the gathered text.
+
+**LinkedIn-only research silently dropped discovered websites.**
+When only a LinkedIn URL was provided, any website Claude found during research was never surfaced back. `normalizeProfile` always set `url: extras.url ?? ''` and `extras.url` was always null in that mode. Fixed by adding `websiteUrl` to the extraction schema so discovered URLs come through.
+
+**Concern badges overflowing the sidebar.**
+shadcn `Badge` defaults to `whitespace-nowrap`. Long concern strings like "Worried about compensation bands relative to market" blew out of the sidebar panel. Fixed with `whitespace-normal break-words max-w-full` on the badge className.
+
+**Avatar images were blank — wrong file extension.**
+Initial avatar code used `.jpg` paths. The uploaded files were `.png`. The browser loaded silently broken images with no console error (the `onError` fallback showed initials instead). Fixed by correcting the paths and verifying the files existed.
+
+**Agent quality retry threshold was too lenient.**
+The original auto-retry fired only when `score < 3` — meaning a 3/5 or 4/5 passed without retry. In practice this produced outreach messages that were generic or repeated subject lines. Lowered to `score < 5` so any failing criterion triggers a retry, consistently hitting 5/5 in testing.
+
+**Warmth badges overflowing on mobile widths.**
+The candidate persona concerns panel rendered long phrases as single-line badges that pushed the sidebar wider than the viewport. Same `whitespace-normal break-words` fix applied to every badge in flex containers throughout the simulator.
+
+---
+
+## What was built with Claude
+
+Every file in this repository was written using **Claude Code** (Anthropic's CLI) and **Cursor**. No boilerplate generators, no external scaffolding. Claude was used for architecture decisions, feature implementation, debugging, UI polish, and this README. The Anthropic API is the only AI provider — there is no OpenAI, Gemini, or any other model in the stack.
+
+---
+
+## What I'd improve with more time
+
+- **Pre-cache demo companies** — store Stripe/Notion/PSView research results statically. Demo clicks would be instant instead of 20s.
+- **Prompt caching** — cache the system prompt across conversation turns to reduce cost and latency on long chats.
+- **Eval CI** — wire the quality scoring into a golden-set test suite so persona drift gets caught automatically.
+- **More avatar styles** — the gender-matched avatar system is designed for extension; additional styles (industry-specific, seniority-matched) could drop in as additional PNGs.

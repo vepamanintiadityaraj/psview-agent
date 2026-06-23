@@ -73,6 +73,7 @@ export default function CompanyForm({ onComplete }: Props) {
   const [needsManualInput, setNeedsManualInput] = useState<string[]>([])
   const [waitSeconds, setWaitSeconds] = useState<number | null>(null)
   const [buildElapsed, setBuildElapsed] = useState(0)
+  const [streamingBio, setStreamingBio] = useState('')
 
   useEffect(() => {
     if (!loadingAgent) { setBuildElapsed(0); return }
@@ -168,6 +169,7 @@ export default function CompanyForm({ onComplete }: Props) {
     setWaitSeconds(null)
     setError('')
     setWarning('')
+    setStreamingBio('')
 
     try {
       const res = await fetch('/api/configure-agent', {
@@ -202,6 +204,7 @@ export default function CompanyForm({ onComplete }: Props) {
           if (!eventLine || !dataLine) continue
           const type = eventLine.slice(7)
           const data = JSON.parse(dataLine.slice(6))
+          if (type === 'bio_delta') setStreamingBio(prev => prev + data.text)
           if (type === 'step') setConfigStep(data)
           if (type === 'done') {
             if (data.warning) setWarning(data.warning)
@@ -406,6 +409,16 @@ export default function CompanyForm({ onComplete }: Props) {
               </>
             )}
           </Button>
+
+          {loadingAgent && streamingBio && (
+            <div className="panel p-4 text-sm leading-relaxed text-foreground">
+              <p className="text-xs text-muted-foreground font-medium mb-2">Agent bio — generating</p>
+              <p>
+                {streamingBio}
+                <span className="inline-block w-0.5 h-3.5 bg-foreground ml-0.5 align-middle animate-pulse" />
+              </p>
+            </div>
+          )}
 
           {!loadingAgent && (
             <p className="text-center text-xs text-muted-foreground -mt-4">

@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  getAnthropic,
-  configureThinking,
-  extractThinking,
-  extractToolInput,
-} from '@/lib/anthropic'
-import { buildConfigureSystemInstruction, AGENT_CONFIG_TOOL } from '@/lib/prompts'
+import { getAnthropic } from '@/lib/anthropic'
+import { buildConfigureSystemInstruction } from '@/lib/prompts'
 import { canBuildAgent } from '@/lib/company'
 import { rateLimit } from '@/lib/guard'
 import { trim, MAX } from '@/lib/validation'
 import { CompanyContext } from '@/types'
-import { parseApiError, sleepMs, apiErrorResponse } from '@/lib/ai-error'
+import { parseApiError, sleepMs } from '@/lib/ai-error'
 import { CONFIGURE_MODELS, FAST_MODEL, OUTREACH_MESSAGE_COUNT } from '@/lib/anthropic-models'
 import { buildFallbackAgentConfig } from '@/lib/fallback-agent'
 
@@ -27,7 +22,7 @@ function buildUserPrompt(companyContext: CompanyContext, targetRole: string): st
 
 From the company context alone, decide:
 1. Who you are — human name, gender (male or female), role title, archetype label (e.g. "The Technical Collaborator"), bio rooted in ${companyContext.name}'s culture, 5 communication rules, 3 things you never do, signature trait.
-2. A ${OUTREACH_MESSAGE_COUNT}-message outreach sequence for a ${targetRole} candidate (msg_1–msg_${OUTREACH_MESSAGE_COUNT}): subject, body (100–130 words each), intent, tone.
+2. A ${OUTREACH_MESSAGE_COUNT}-message outreach sequence for a ${targetRole} candidate (msg_1–msg_${OUTREACH_MESSAGE_COUNT}): subject, body (100–200 words each), intent, tone.
    - msg_1: initial personalized outreach
    - msg_2: follow-up with role detail
    - msg_3: qualification question
@@ -43,7 +38,32 @@ QUALITY REQUIREMENTS (non-negotiable — every message must pass these):
 - All 5 subject lines must be unique — no repetition.
 - Every message must be tailored to the ${targetRole} role with specific, relevant detail.
 
-Submit via the submit_agent_config tool.`
+Output in this exact format — no preamble, no explanation outside the tags:
+
+<bio>
+Write the recruiter bio here as natural prose. 3-4 sentences. Start with the recruiter's name. Ground it in ${companyContext.name}'s mission and culture.
+</bio>
+<json>
+{
+  "personality": {
+    "name": "First Last",
+    "gender": "male or female",
+    "role": "Job Title",
+    "archetype": "The [Archetype Name]",
+    "bio": "Same bio as above",
+    "signatureTrait": "One sentence describing their signature recruiting approach.",
+    "communicationRules": ["Rule 1", "Rule 2", "Rule 3", "Rule 4", "Rule 5"],
+    "avoidList": ["Thing 1", "Thing 2", "Thing 3"]
+  },
+  "messageSequence": [
+    {"id": "msg_1", "subject": "...", "body": "...", "intent": "...", "tone": "..."},
+    {"id": "msg_2", "subject": "...", "body": "...", "intent": "...", "tone": "..."},
+    {"id": "msg_3", "subject": "...", "body": "...", "intent": "...", "tone": "..."},
+    {"id": "msg_4", "subject": "...", "body": "...", "intent": "...", "tone": "..."},
+    {"id": "msg_5", "subject": "...", "body": "...", "intent": "...", "tone": "..."}
+  ]
+}
+</json>`
 }
 
 interface AgentConfigPayload {
@@ -55,6 +75,8 @@ interface AgentConfigPayload {
     communicationRules: string[]
     avoidList: string[]
     signatureTrait: string
+    gender?: 'male' | 'female'
+    reasoningTrace?: string
   }
   messageSequence: Array<{
     id: string
@@ -69,6 +91,22 @@ interface EvalResult {
   score: number
   criteria: { label: string; pass: boolean }[]
   failures: string[]
+}
+
+function parseConfigFromStream(text: string): AgentConfigPayload | null {
+  // Try <json>...</json> block first
+  const jsonMatch = text.match(/<json>([\s\S]*?)<\/json>/)
+  const jsonStr = jsonMatch?.[1]?.trim()
+  if (jsonStr) {
+    try { return JSON.parse(jsonStr) } catch {}
+  }
+  // Fallback: find the outermost { ... }
+  const i = text.indexOf('{')
+  const j = text.lastIndexOf('}')
+  if (i !== -1 && j !== -1 && j > i) {
+    try { return JSON.parse(text.slice(i, j + 1)) } catch {}
+  }
+  return null
 }
 
 async function evalAgentConfig(
@@ -125,28 +163,56 @@ ${failures.map((f, i) => `${i + 1}. ${f}`).join('\n')}
 Fix only these issues. Keep everything else.`
 }
 
-async function generateConfig(model: string, systemInstruction: string, userPrompt: string) {
-  const response = await getAnthropic().messages.create({
+async function generateConfig(
+  model: string,
+  systemInstruction: string,
+  userPrompt: string,
+  onBioDelta?: (text: string) => void,
+): Promise<{ data: AgentConfigPayload; modelUsed: string }> {
+  let streamText = ''
+  let bioStart = -1
+  let lastSentIdx = 0
+
+  const stream = await getAnthropic().messages.create({
     model,
     max_tokens: 10_000,
-    ...(configureThinking ? { thinking: configureThinking } : {}),
     system: systemInstruction,
-    tools: [AGENT_CONFIG_TOOL],
     messages: [{ role: 'user', content: userPrompt }],
+    stream: true,
   })
 
-  const data = extractToolInput<AgentConfigPayload>(response, AGENT_CONFIG_TOOL.name)
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      streamText += event.delta.text
+
+      if (onBioDelta) {
+        if (bioStart === -1) {
+          const idx = streamText.indexOf('<bio>')
+          if (idx !== -1) { bioStart = idx + 5; lastSentIdx = bioStart }
+        }
+        if (bioStart !== -1) {
+          const closeIdx = streamText.indexOf('</bio>')
+          const sendTo = closeIdx !== -1 ? closeIdx : streamText.length
+          if (sendTo > lastSentIdx) {
+            onBioDelta(streamText.slice(lastSentIdx, sendTo))
+            lastSentIdx = sendTo
+          }
+        }
+      }
+    }
+  }
+
+  const data = parseConfigFromStream(streamText)
   if (!data?.personality?.name || !data.messageSequence?.length) {
     throw new Error('Incomplete agent configuration')
   }
 
-  const thoughts = extractThinking(response)
   return {
     data: {
       ...data,
       personality: {
         ...data.personality,
-        reasoningTrace: thoughts || data.personality.signatureTrait,
+        reasoningTrace: data.personality.signatureTrait,
       },
     },
     modelUsed: model,
@@ -174,7 +240,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const stream = new ReadableStream({
+  const responseStream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder()
       const send = (event: string, data: unknown) => {
@@ -185,7 +251,7 @@ export async function POST(req: NextRequest) {
       const userPrompt = buildUserPrompt(companyContext, targetRole)
 
       try {
-        // ── Step 1: Generate ────────────────────────────────────────────
+        // ── Step 1: Generate (streaming bio to client) ──────────────────
         send('step', { n: 1, total: 2, label: 'Building agent persona...' })
 
         let rawConfig: AgentConfigPayload | null = null
@@ -194,7 +260,12 @@ export async function POST(req: NextRequest) {
 
         for (const model of CONFIGURE_MODELS) {
           try {
-            const result = await generateConfig(model, systemInstruction, userPrompt)
+            const result = await generateConfig(
+              model,
+              systemInstruction,
+              userPrompt,
+              (text) => send('bio_delta', { text }),
+            )
             rawConfig = result.data
             modelUsed = result.modelUsed
             break
@@ -205,7 +276,12 @@ export async function POST(req: NextRequest) {
             if (parsed.retryable) {
               await sleepMs(parsed.retryAfterSeconds * 1000)
               try {
-                const result = await generateConfig(model, systemInstruction, userPrompt)
+                const result = await generateConfig(
+                  model,
+                  systemInstruction,
+                  userPrompt,
+                  (text) => send('bio_delta', { text }),
+                )
                 rawConfig = result.data
                 modelUsed = result.modelUsed
                 break
@@ -225,13 +301,14 @@ export async function POST(req: NextRequest) {
         let finalConfig = rawConfig
         let autoRetried = false
 
-        // ── Step 3: Auto-retry if score < 3 ────────────────────────────
+        // ── Step 3: Auto-retry if any criterion failed ──────────────────
         if (evalResult.score < 5 && evalResult.failures.length > 0) {
           send('step', { n: 3, total: 3, label: `Auto-retrying — score ${evalResult.score}/5...` })
           const retryPrompt = buildRetryPrompt(userPrompt, evalResult.failures)
 
           for (const model of CONFIGURE_MODELS) {
             try {
+              // No bio streaming on retry — user already saw it
               const result = await generateConfig(model, systemInstruction, retryPrompt)
               finalConfig = result.data
               modelUsed = result.modelUsed
@@ -272,7 +349,7 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  return new Response(stream, {
+  return new Response(responseStream, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
