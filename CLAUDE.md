@@ -1,20 +1,20 @@
 # PSView Agent — Project Context for AI Assistants
 
-Read this file before making changes. Also follow `AGENTS.md` (Next.js 16 breaking changes — check `node_modules/next/dist/docs/`).
+Read this file before making changes.
 
 ---
 
 ## What this app is
 
-**PSView** is a take-home / demo app: an **autonomous recruiting agent** that:
+**PSView** is a demo app: an **autonomous recruiting agent** that:
 
-1. Researches a company (website + **required** LinkedIn)
-2. **Self-configures** a recruiter persona + 5-message outreach sequence
-3. **Simulates** a candidate conversation with streaming replies
+1. Researches a company (website + LinkedIn) or accepts manual input via a chat wizard
+2. **Self-configures** a recruiter persona (name, gender, bio, outreach) from company context
+3. **Simulates** a candidate conversation with streaming replies and live reasoning
 
 **Stack:** Next.js 16 · TypeScript · Tailwind 4 · shadcn/ui · Anthropic Claude API (`@anthropic-ai/sdk`)
 
-**UI:** Clean light theme — white background, black text, minimal borders. No shaders, shimmer, or Tron effects (removed).
+**UI:** Clean light theme — white background, black text, minimal borders. No shaders, shimmer, or Tron effects.
 
 ---
 
@@ -37,7 +37,7 @@ Never commit `.env.local`.
 
 | Step | Component | API |
 |------|-----------|-----|
-| 1 Company | `CompanyForm` + `CompanyDetailsForm` | `POST /api/scrape-company` |
+| 1 Company | `CompanyForm` → `CompanyDetailsForm` | `POST /api/scrape-company` |
 | 2 Agent | `AgentProfile` (LinkedIn-style profile UI) | `POST /api/configure-agent` |
 | 3 Simulate | `ConversationSimulator` | `POST /api/conversation` (SSE) |
 
@@ -45,86 +45,119 @@ Routing: `src/app/page.tsx` — step state `onboard | agent | simulate`.
 
 ---
 
-## Product decisions (important)
+## Step 1 — Company context
 
-### Who decides the recruiter character?
+### Entry modes (only two)
 
-**Hybrid model (intentional):**
+- **Website** (`url`): enter company URL + LinkedIn → research via Haiku + web search
+- **Manual** (`manual`): chat wizard (4 questions: name, description, size, culture & values) → then review form
 
-| Company provides | System generates |
-|------------------|------------------|
-| Culture, values, tone slider | Recruiter name |
-| Hiring intent, target role | Bio, role title |
-| Company context from research | Communication rules, avoid list |
-| | 5-message outreach sequence |
+Search and Paste Text modes were removed. `EntryMode = 'url' | 'manual'`.
 
-The company **does not** pick the recruiter persona directly — they shape it via tone/culture/values/intent. The agent **autonomously** invents a believable employee at that company. This is core to the demo narrative.
+### Manual chat wizard (`ManualChatForm.tsx`)
 
-If adding a “pick your recruiter” feature later, keep tone/culture as constraints and only expose optional overrides (name, seniority).
+4 questions only:
+1. Company name
+2. What they do (description)
+3. Company size
+4. Culture & values (combined, comma-separated → split into both `culture[]` and `values[]`)
 
-### LinkedIn is required for web research
+After chat → shows full `CompanyDetailsForm` for review (website, LinkedIn, tone, roles, target role, hiring intent filled there).
 
-For `mode: url` and `mode: name`, **`linkedinUrl` is required** (API returns 400 if missing).
+### Company details form (`CompanyDetailsForm.tsx`)
 
-- Website → description, mission, careers, culture/values (if explicitly stated)
-- LinkedIn → **always** researched for size, About, industry, supplemental culture/values
-- Culture/values: **only** from official website or LinkedIn — never inferred from news/reviews
-- If not found → empty arrays + `needsManualInput: ['culture'|'values']` + UI prompts manual entry
+- **Culture & Values are merged into one panel** (two sub-sections inside, not two separate panels)
+- **Company size**: if researched value exists, shows as a `Badge` with "Change" link — no option buttons shown unless empty
+- **AI suggestions** (`/api/suggest-culture-values`): auto-fetches on mount when `needsManualInput` contains culture/values. Returns suggested chips marked with `✦`. Only fires once per mount via `fetchedRef`.
+- LinkedIn URL: after research, falls back to the URL we sent if API response omits it
 
-`describe` and `manual` modes do not require LinkedIn at research time (profile form still has LinkedIn field).
+### LinkedIn requirement
 
-Auto-suggest: entering `stripe.com` pre-fills `linkedin.com/company/stripe` via `suggestLinkedInFromWebsite()`.
+For `mode: url`, `linkedinUrl` is required. Auto-suggested from website domain via `suggestLinkedInFromWebsite()`.
+Demo companies: PSView, Stripe, Notion — clicking pre-fills URL and LinkedIn, then auto-researches.
 
-### Outreach sequence: 5 messages
+---
 
-`OUTREACH_MESSAGE_COUNT = 5` in `src/lib/anthropic-models.ts`.
+## Step 2 — Agent profile (`AgentProfile.tsx`)
 
-Industry standard cold sequence: intro → follow-up → qualify → nudge → **breakup/close**. Four is minimum; five includes graceful close.
+### Recruiter persona
 
-### Roles
+Claude autonomously chooses: name, **gender** (`male | female`), role title, archetype, bio, communication rules, avoid list, signature trait.
 
-- **`rolesHired`** — optional multi-select; roles seen on careers page (context)
-- **`targetRole`** — required **single** role; one agent session = one hire
+Gender is in `AgentPersonality` type and `AGENT_CONFIG_TOOL` schema. Claude picks it; the UI uses it to select the avatar image.
 
-### Reasoning visibility
+### Avatar images
 
-- **Configure agent:** extended thinking **disabled** for speed (~20–45s vs ~90s)
-- **Conversation:** thinking runs server-side but **not shown live**; user clicks **“Show reasoning”** per message
-- **Agent profile:** “Configuration reasoning” collapsed by default
+- `public/avatars/male.png` — male recruiter (3D cartoon, bearded, blue blazer)
+- `public/avatars/female.png` — female recruiter (3D cartoon, dark hair, blue blazer)
 
-### Unexpected candidate replies
+Both AgentProfile and ConversationSimulator use `personality.gender` to pick the avatar. Falls back to initials/Bot icon if image errors.
 
-Conversation prompt handles hostile, opt-out, confused, off-topic, gibberish.
+### Quality scoring
 
-`META` includes `responseCategory`: `expected|unexpected|hostile|off-topic|confused`.
+`computeQualityScore` in `AgentProfile.tsx` has 5 client-side criteria. Server-side eval (`evalAgentConfig` in configure-agent route) also scores 5 criteria.
 
-UI: “Test unexpected replies” quick chips in simulator.
+Auto-retry fires when `evalResult.score < 5` (any criterion failure triggers one retry with failure feedback). Retry threshold was lowered from `< 3` to `< 5` to always aim for 5/5.
+
+Generate prompt explicitly forbids: `"rockstar"`, `"ninja"`, `"guru"`, `"superstar"`, `"amazing opportunity"`, `"unique opportunity"`, `"dream job"`, `"excited to share"`. Word count per message: 100–200 words.
+
+Client-side word count range: 50–300 words (was 50–250).
+
+### Outreach sequence
+
+5 messages: intro → follow-up → qualify → nudge → close. `OUTREACH_MESSAGE_COUNT = 5`.
+
+### Tabs
+
+- **About**: bio, signature trait, experience card, collapsed "Configuration reasoning"
+- **Outreach · 5**: message sequence with tags (FIRST TOUCH / FOLLOW-UP / QUALIFY / VALUE PITCH / CLOSE) + quality score panel
+- **Guidelines**: communication rules + avoid list
+
+---
+
+## Step 3 — Conversation simulator (`ConversationSimulator.tsx`)
+
+### Sidebar panels
+
+**Candidate persona panel:**
+- No persona: two buttons — "Generate random" (calls `/api/generate-persona`) or "Enter details" (inline form)
+- Enter details form: name, current role, current company, background, concerns (comma-separated), tone (select)
+- After persona set: shows profile + "Regenerate" + "Edit" links
+- Concern badges: `whitespace-normal break-words max-w-full` to prevent overflow
+
+**Candidate Memory panel:**
+- Warmth % with color bar (green/amber/red)
+- Warmth timeline chart (SVG sparkline, `WarmthChart` component)
+- Objections count, key concern, strategy mode
+
+**Handoff Brief panel** (appears after 2 agent messages):
+- "Generate" / "Refresh" → calls `/api/handoff-brief`
+- Renders via `BriefRenderer` (lightweight markdown → JSX, handles `**bold**`, bullets, quoted lines)
+
+### Live reasoning stream
+
+While agent is thinking (before first reply token arrives), shows a "Thinking..." panel with last 380 chars of the thinking stream. SSE event `thinking` is emitted from the conversation route. Panel hides when first reply delta arrives.
+
+### Chat UX
+
+- Agent avatar: uses `personality.gender`-matched PNG, falls back to Bot icon
+- Warmth updates each turn based on sentiment
+- "Test unexpected replies" chips + "Quick replies" chips
+- "Show reasoning" per message (candidateRead, nextStrategy, riskFlags, full thinking)
+- Candidate name shows `persona.name` when persona is set
 
 ---
 
 ## API routes
 
-### `POST /api/scrape-company`
-
-Modes: `url` | `name` | `describe` | `enrich`
-
-- Uses Claude Haiku + web search tool + `submit_company_profile` tool
-- Strict system prompt: `WEBSITE_RESEARCH_SYSTEM` in `src/lib/prompts.ts`
-- Returns `needsManualInput` array when culture/values missing from sources
-
-### `POST /api/configure-agent`
-
-- Claude Sonnet (fallback: Haiku)
-- **No extended thinking** (`CONFIGURE_THINKING_BUDGET = 0`)
-- Tool: `submit_agent_config` — no forced `tool_choice` (incompatible with thinking)
-- `allowFallback: true` → `buildFallbackAgentConfig()` from `src/lib/fallback-agent.ts`
-- Body: `{ companyContext, targetRole, allowFallback? }`
-
-### `POST /api/conversation`
-
-- SSE events: `delta`, `done`, `error` (thinking collected server-side, not streamed to UI)
-- Extended thinking enabled (`CONVERSATION_THINKING_BUDGET = 6000`)
-- Parses `<META>{...}</META>` block from reply via `src/lib/conversation.ts`
+| Route | Model | Purpose |
+|-------|-------|---------|
+| `POST /api/scrape-company` | Haiku | Research company from URL/name/text. Returns `needsManualInput[]` |
+| `POST /api/configure-agent` | Sonnet → Haiku fallback | Generate persona + outreach. SSE: `step`, `done`, `error`. Eval + auto-retry |
+| `POST /api/conversation` | Sonnet (thinking=6000) | SSE: `thinking`, `delta`, `done`, `error`. Parses `<META>` block |
+| `POST /api/generate-persona` | Haiku | Generate fictional candidate profile |
+| `POST /api/handoff-brief` | Haiku | Write structured recruiter handoff brief |
+| `POST /api/suggest-culture-values` | Haiku | Suggest culture traits + values from company description |
 
 ---
 
@@ -133,39 +166,51 @@ Modes: `url` | `name` | `describe` | `enrich`
 ```
 src/
   app/
-    page.tsx                    # Step router + header nav
+    page.tsx                              # Step router + header nav
     api/scrape-company/route.ts
-    api/configure-agent/route.ts
-    api/conversation/route.ts
-    globals.css                 # Light theme + .panel utility
+    api/configure-agent/route.ts          # Generate → eval → auto-retry pipeline
+    api/conversation/route.ts             # Streaming SSE with thinking
+    api/generate-persona/route.ts
+    api/handoff-brief/route.ts
+    api/suggest-culture-values/route.ts   # NEW: AI culture/values suggestions
+    globals.css                           # Light theme + .panel utility
   components/
-    CompanyForm.tsx             # Entry modes + build agent
-    CompanyDetailsForm.tsx      # Profile fields, culture, values, roles
-    AgentProfile.tsx            # LinkedIn-style step 2
-    ConversationSimulator.tsx   # Chat + outreach tabs
+    CompanyForm.tsx                       # Website + Manual modes, demo buttons
+    ManualChatForm.tsx                    # NEW: 4-question chat wizard for manual entry
+    CompanyDetailsForm.tsx                # Review form: merged culture/values, size badge, AI suggestions
+    AgentProfile.tsx                      # LinkedIn-style profile, avatar, quality score
+    ConversationSimulator.tsx             # Chat + outreach tabs, persona, memory, brief
     CompanyContextCard.tsx
   lib/
-    anthropic.ts                # Lazy client, thinking configs
-    anthropic-models.ts         # Models, OUTREACH_MESSAGE_COUNT
-    prompts.ts                  # System prompts + Anthropic tool schemas
-    company.ts                  # EMPTY_CONTEXT, canBuildAgent, DEMO_COMPANIES
-    conversation.ts             # History + META parsing
-    fallback-agent.ts           # Template agent when API fails
-    ai-error.ts                 # Rate limit / retry helpers
-    fetch-retry.ts              # Client retry with backoff
-    validation.ts               # normalizeUrl, normalizeLinkedInUrl
-  types/index.ts                # CompanyContext, AgentConfig, ConversationMessage
+    anthropic.ts                          # Lazy client, thinking configs
+    anthropic-models.ts                   # Models, OUTREACH_MESSAGE_COUNT
+    prompts.ts                            # System prompts + Anthropic tool schemas
+    company.ts                            # EMPTY_CONTEXT, canBuildAgent, DEMO_COMPANIES, suggestLinkedInFromWebsite
+    conversation.ts                       # History + META parsing
+    fallback-agent.ts                     # Template agent when API fails
+    ai-error.ts                           # Rate limit / retry helpers
+    fetch-retry.ts                        # Client retry with backoff
+    validation.ts                         # normalizeUrl, normalizeLinkedInUrl
+  types/index.ts                          # All types
+public/
+  avatars/
+    male.png                              # Male recruiter avatar (3D cartoon)
+    female.png                            # Female recruiter avatar (3D cartoon)
 ```
 
 ---
 
 ## Types (`src/types/index.ts`)
 
-**CompanyContext:** `name`, `url`, `linkedinUrl`, `description`, `industry`, `culture[]`, `values[]`, `tone` (0–100), `rolesHired[]`, `mission?`, `companySize?`, `hiringIntent?`, `source`
+**CompanyContext:** `name`, `url`, `linkedinUrl?`, `description`, `industry`, `culture[]`, `values[]`, `tone` (0–100), `rolesHired[]`, `mission?`, `companySize?`, `hiringIntent?`, `source`
 
-**AgentConfig:** `personality`, `messageSequence[]`, `companyContext`, `targetRole?`, `fallback?`, `warning?`
+**AgentPersonality:** `name`, `role`, `bio`, `communicationRules[]`, `avoidList[]`, `signatureTrait`, `reasoningTrace?`, `archetype?`, `gender?: 'male' | 'female'`
 
-**ConversationMessage:** `role`, `content`, `reasoning?`, `sentiment?`, `candidateRead?`, `nextStrategy?`, `riskFlags?`, `responseCategory?`
+**AgentConfig:** `personality`, `messageSequence[]`, `companyContext`, `targetRole?`, `fallback?`, `warning?`, `autoRetried?`, `evalCriteria?`
+
+**CandidatePersona:** `name`, `currentRole`, `currentCompany`, `background`, `likelyConcerns[]`, `tone: 'direct'|'skeptical'|'friendly'|'busy'|'curious'`
+
+**ConversationMessage:** `role`, `content`, `reasoning?`, `sentiment?`, `candidateRead?`, `nextStrategy?`, `riskFlags?`, `responseCategory?`, `timestamp`
 
 ---
 
@@ -175,44 +220,53 @@ src/
 - Web search tool: `WEB_SEARCH_TOOL` cast in `anthropic.ts`
 - Tool schemas: `COMPANY_PROFILE_TOOL`, `AGENT_CONFIG_TOOL` in `prompts.ts` — typed as `Anthropic.Tool`
 - **Do not** use `tool_choice: { type: 'tool', name }` with extended thinking enabled
+- `gender` field is in `AGENT_CONFIG_TOOL` personality schema and is required
 
 ---
 
 ## UI conventions
 
 - Use `.panel` class: `rounded-lg border border-border bg-card`
-- Use shadcn `Button`, `Input`, `Badge` — no `ShimmerButton` (deleted)
-- `AppShell` is plain `bg-background` — no WebGL/Tron background
+- Use shadcn `Button`, `Input`, `Badge`, `Textarea`, `Slider`
 - Agent profile uses LinkedIn blue `#0a66c2` for accents on step 2 only
+- Tone slider: "Very Formal" (left) → "Very Casual" (right), badge above shows current label
+- Badge overflow: always add `whitespace-normal break-words max-w-full` to badges in flex containers
 
 ---
 
-## Build / configure performance
+## Intelligence features (all live)
 
-Slow configure was caused by 10k thinking tokens + 4 long messages. Fixed by:
-
-- Disabling thinking on configure
-- Shorter message bodies (100–130 words)
-- `max_tokens: 10000`
-- UI shows elapsed seconds on build button
+| Feature | Where |
+|---------|-------|
+| Live reasoning stream | `ConversationSimulator` + `api/conversation` SSE `thinking` event |
+| Warmth timeline chart | `WarmthChart` SVG component inside `CandidateMemoryPanel` |
+| Candidate persona generator | `/api/generate-persona` + inline manual form |
+| Handoff brief | `/api/handoff-brief` + `BriefRenderer` markdown component |
+| AI culture/values suggestions | `/api/suggest-culture-values` auto-called on mount |
+| Recruiter avatar | `public/avatars/{male,female}.png` selected by `personality.gender` |
 
 ---
 
-## Testing
+## Configure pipeline
 
-```bash
-npm run build
-npm run dev
-node scripts/test-edge-cases.mjs   # smoke tests, needs dev server
 ```
+1. buildConfigureSystemInstruction(companyContext)   ← system prompt
+2. buildUserPrompt(companyContext, targetRole)        ← includes quality requirements
+3. generateConfig() → Claude Sonnet (or Haiku fallback)
+4. evalAgentConfig() → Haiku scores 5 criteria
+5. if score < 5: retry with buildRetryPrompt(failures)
+6. send SSE: step (1→2→3), done, error
+```
+
+Configure thinking is **disabled** (`CONFIGURE_THINKING_BUDGET = 0`) for speed.
 
 ---
 
 ## Known limitations
 
-- No DB — refresh loses conversation
+- No DB — refresh loses conversation state
 - In-memory rate limiter (`src/lib/guard.ts`)
-- LinkedIn scraping depends on Claude web search quality
+- LinkedIn scraping quality depends on Claude web search
 - Template fallback agent if Anthropic rate-limited
 
 ---
@@ -228,10 +282,13 @@ Only commit when the user explicitly asks. Do not commit `.env.local`.
 | Task | Where to change |
 |------|-----------------|
 | Change outreach count | `OUTREACH_MESSAGE_COUNT`, configure prompt, `fallback-agent.ts` |
-| Stricter company research | `WEBSITE_RESEARCH_SYSTEM`, `scrape-company/route.ts` |
-| Faster configure | `CONFIGURE_THINKING_BUDGET`, model order in `CONFIGURE_MODELS` |
+| Add/remove entry mode | `EntryMode` type + `ENTRY_MODES` array in `CompanyForm.tsx` |
+| Stricter company research | `WEBSITE_RESEARCH_SYSTEM` in `prompts.ts` |
+| Faster configure | `CONFIGURE_MODELS` order in `anthropic-models.ts` |
 | Conversation behavior | `buildConversationSystemInstruction` in `prompts.ts` |
 | UI theme | `globals.css` `:root` variables |
+| Add new avatar | Drop PNG in `public/avatars/`, update path in `AgentProfile` + `ConversationSimulator` |
+| Change quality criteria | `computeQualityScore` in `AgentProfile.tsx` + `evalAgentConfig` prompt in `configure-agent/route.ts` |
 
 ---
 
@@ -240,3 +297,4 @@ Only commit when the user explicitly asks. Do not commit `.env.local`.
 - `shimmer-bg-text.tsx`, `hero-section-dark.tsx`, `glowing-card.tsx`, `web-gl-shader.tsx`
 - `FlowWaveBackground.tsx`, `CompanyOnboardingChat.tsx`
 - Gemini integration (`@google/genai`) — fully migrated to Anthropic
+- Entry modes `name` (Search) and `describe` (Paste text) — removed, only `url` and `manual` remain
