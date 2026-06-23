@@ -796,7 +796,7 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
                 <p className="text-xs text-muted-foreground leading-relaxed">{persona.background}</p>
                 <div className="flex flex-wrap gap-1 pt-1">
                   {persona.likelyConcerns.map((c, i) => (
-                    <Badge key={i} variant="secondary" className="text-[10px]">{c}</Badge>
+                    <Badge key={i} variant="secondary" className="text-[10px] whitespace-normal break-words max-w-full">{c}</Badge>
                   ))}
                 </div>
                 <div className="flex items-center justify-between pt-1">
