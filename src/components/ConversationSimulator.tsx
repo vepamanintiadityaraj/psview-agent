@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { AgentConfig, ConversationMessage } from '@/types'
+import { AgentConfig, CandidatePersona, ConversationMessage } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -11,8 +11,52 @@ import {
 } from '@/lib/fetch-retry'
 import {
   ArrowLeft, Brain, Send, User, Bot, ChevronDown, ChevronUp,
-  Loader2, RotateCcw, MessageSquare, Mail,
+  Loader2, RotateCcw, MessageSquare, Mail, FileText, UserCircle,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+function BriefRenderer({ text }: { text: string }) {
+  const sections = text.trim().split(/\n{2,}/)
+  return (
+    <div className="space-y-2.5">
+      {sections.map((section, i) => {
+        const lines = section.split('\n').filter(Boolean)
+        return (
+          <div key={i}>
+            {lines.map((line, j) => {
+              // **Header:** → bold label
+              const headerMatch = line.match(/^\*\*(.+?)\*\*:?\s*(.*)$/)
+              if (headerMatch) {
+                return (
+                  <p key={j} className={cn('font-semibold text-foreground break-words', j > 0 && 'mt-1')}>
+                    {headerMatch[1]}{headerMatch[2] ? ': ' : ''}<span className="font-normal text-foreground/80">{headerMatch[2]}</span>
+                  </p>
+                )
+              }
+              // Bullet: "- " or "• "
+              if (/^[-•]\s/.test(line)) {
+                return (
+                  <p key={j} className="pl-3 text-foreground/80 break-words relative before:absolute before:left-0.5 before:content-['·']">
+                    {line.replace(/^[-•]\s/, '')}
+                  </p>
+                )
+              }
+              // Quoted opener line
+              if (line.startsWith('"') || line.startsWith('“')) {
+                return (
+                  <p key={j} className="italic text-foreground/80 break-words border-l-2 border-border pl-2 ml-1">
+                    {line}
+                  </p>
+                )
+              }
+              return <p key={j} className="text-foreground/80 break-words">{line}</p>
+            })}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 const OUTREACH_TAGS = [
   { label: 'FIRST TOUCH', cls: 'bg-green-100 text-green-800 border-green-200' },
@@ -29,19 +73,46 @@ const STRATEGY_LABELS: Record<string, string> = {
   closing:    'Closing mode',
 }
 
+function WarmthChart({ history }: { history: number[] }) {
+  if (history.length < 2) return null
+  const W = 100
+  const H = 36
+  const pts = history.map((v, i) => ({
+    x: (i / (history.length - 1)) * W,
+    y: H - (v / 100) * H,
+    v,
+  }))
+  const polyline = pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] text-muted-foreground">Warmth over time</span>
+        <span className="text-[10px] text-muted-foreground">{history.length} turns</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 36 }} preserveAspectRatio="none">
+        <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="currentColor" strokeOpacity="0.1" strokeWidth="0.5" strokeDasharray="3,3" />
+        <polyline points={polyline} fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        {pts.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={i === pts.length - 1 ? 2.5 : 1.5}
+            fill={p.v >= 67 ? '#22c55e' : p.v >= 34 ? '#f59e0b' : '#ef4444'} />
+        ))}
+      </svg>
+    </div>
+  )
+}
+
 function CandidateMemoryPanel({
-  warmth, objectionCount, keyConcern, stage, escalationMode,
+  warmth, objectionCount, keyConcern, stage, escalationMode, warmthHistory,
 }: {
   warmth: number
   objectionCount: number
   keyConcern: string
   stage: string
   escalationMode: boolean
+  warmthHistory: number[]
 }) {
   const barColor = warmth >= 67 ? 'bg-green-400' : warmth >= 34 ? 'bg-amber-400' : 'bg-red-400'
-  const strategyLabel = escalationMode
-    ? 'Escalation mode'
-    : (STRATEGY_LABELS[stage] ?? 'Standard mode')
+  const strategyLabel = escalationMode ? 'Escalation mode' : (STRATEGY_LABELS[stage] ?? 'Standard mode')
   return (
     <div className="panel p-4 space-y-4">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -58,6 +129,7 @@ function CandidateMemoryPanel({
             style={{ width: `${warmth}%` }}
           />
         </div>
+        <WarmthChart history={warmthHistory} />
       </div>
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">Objections</span>
@@ -69,17 +141,13 @@ function CandidateMemoryPanel({
       </div>
       <div className="flex items-center justify-between pt-2 border-t border-border">
         <span className="text-xs text-muted-foreground">Strategy mode</span>
-        <span className={cn(
-          'text-xs font-medium',
-          escalationMode && 'text-red-600',
-        )}>
+        <span className={cn('text-xs font-medium', escalationMode && 'text-red-600')}>
           {strategyLabel}
         </span>
       </div>
     </div>
   )
 }
-import { cn } from '@/lib/utils'
 
 interface Props {
   agentConfig: AgentConfig
@@ -127,6 +195,7 @@ function initialMessages(agentConfig: AgentConfig): ConversationMessage[] {
 async function consumeConversationStream(
   res: Response,
   onDelta: (delta: string) => void,
+  onThinking?: (delta: string) => void,
 ) {
   const reader = res.body?.getReader()
   if (!reader) throw new Error('No response stream')
@@ -162,6 +231,7 @@ async function consumeConversationStream(
       const type = eventLine.slice(7)
       const data = JSON.parse(dataLine.slice(6))
 
+      if (type === 'thinking') onThinking?.(data.delta)
       if (type === 'delta') onDelta(data.delta)
       if (type === 'done') result = { ...result, ...data }
       if (type === 'error') {
@@ -188,10 +258,21 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
   const [lastSignal, setLastSignal] = useState('')
   const [waitSeconds, setWaitSeconds] = useState<number | null>(null)
   const [warmth, setWarmth] = useState(50)
+  const [warmthHistory, setWarmthHistory] = useState<number[]>([50])
   const [objectionCount, setObjectionCount] = useState(0)
   const [keyConcern, setKeyConcern] = useState('')
   const [consecutiveNegatives, setConsecutiveNegatives] = useState(0)
   const [escalationMode, setEscalationMode] = useState(false)
+  // Live reasoning stream
+  const [liveThinking, setLiveThinking] = useState('')
+  const [isThinkingPhase, setIsThinkingPhase] = useState(false)
+  // Candidate persona
+  const [persona, setPersona] = useState<CandidatePersona | null>(null)
+  const [generatingPersona, setGeneratingPersona] = useState(false)
+  // Handoff brief
+  const [handoffBrief, setHandoffBrief] = useState<string | null>(null)
+  const [generatingBrief, setGeneratingBrief] = useState(false)
+
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const resetConversation = useCallback(() => {
@@ -202,15 +283,56 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
     setExpandedReasoning(null)
     setInput('')
     setWarmth(50)
+    setWarmthHistory([50])
     setObjectionCount(0)
     setKeyConcern('')
     setConsecutiveNegatives(0)
     setEscalationMode(false)
+    setLiveThinking('')
+    setIsThinkingPhase(false)
+    setHandoffBrief(null)
   }, [agentConfig])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingIdx])
+
+  const generatePersona = useCallback(async () => {
+    setGeneratingPersona(true)
+    try {
+      const res = await fetch('/api/generate-persona', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetRole: agentConfig.targetRole, companyContext }),
+      })
+      if (res.ok) setPersona(await res.json())
+    } catch { /* ignore */ } finally {
+      setGeneratingPersona(false)
+    }
+  }, [agentConfig.targetRole, companyContext])
+
+  const generateBrief = useCallback(async () => {
+    setGeneratingBrief(true)
+    try {
+      const res = await fetch('/api/handoff-brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationHistory: messages,
+          personality,
+          companyContext,
+          targetRole: agentConfig.targetRole,
+          candidatePersona: persona,
+        }),
+      })
+      if (res.ok) {
+        const { brief } = await res.json()
+        setHandoffBrief(brief)
+      }
+    } catch { /* ignore */ } finally {
+      setGeneratingBrief(false)
+    }
+  }, [messages, personality, companyContext, agentConfig.targetRole, persona])
 
   async function sendReply(text: string) {
     if (!text.trim() || loading) return
@@ -225,6 +347,8 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
     setInput('')
     setLoading(true)
     setWaitSeconds(null)
+    setIsThinkingPhase(true)
+    setLiveThinking('')
 
     const agentPlaceholder: ConversationMessage = {
       role: 'agent',
@@ -240,10 +364,14 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
 
     try {
       let data: Awaited<ReturnType<typeof consumeConversationStream>> | null = null
+      let seenFirstDelta = false
 
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
           if (attempt > 1) {
+            seenFirstDelta = false
+            setIsThinkingPhase(true)
+            setLiveThinking('')
             setMessages(prev => {
               const next = [...prev]
               next[agentIdx] = { role: 'agent', content: '', reasoning: '', timestamp: Date.now() }
@@ -266,16 +394,26 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
             throw new Error(err.error)
           }
 
-          data = await consumeConversationStream(res, (delta) => {
-            setMessages(prev => {
-              const next = [...prev]
-              const msg = next[agentIdx]
-              if (msg?.role === 'agent') {
-                next[agentIdx] = { ...msg, content: msg.content + delta }
+          data = await consumeConversationStream(
+            res,
+            (delta) => {
+              if (!seenFirstDelta) {
+                seenFirstDelta = true
+                setIsThinkingPhase(false)
               }
-              return next
-            })
-          })
+              setMessages(prev => {
+                const next = [...prev]
+                const msg = next[agentIdx]
+                if (msg?.role === 'agent') {
+                  next[agentIdx] = { ...msg, content: msg.content + delta }
+                }
+                return next
+              })
+            },
+            (thinkingDelta) => {
+              setLiveThinking(prev => prev + thinkingDelta)
+            },
+          )
           break
         } catch (e) {
           if (isRetryableError(e) && attempt < MAX_ATTEMPTS) {
@@ -292,13 +430,13 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
         const next = [...prev]
         next[agentIdx] = {
           role: 'agent',
-          content: data.reply || next[agentIdx]?.content || '',
-          reasoning: data.reasoning,
-          sentiment: data.sentiment as ConversationMessage['sentiment'],
-          candidateRead: data.candidateRead,
-          nextStrategy: data.nextStrategy,
-          riskFlags: data.riskFlags,
-          responseCategory: data.responseCategory as ConversationMessage['responseCategory'],
+          content: data!.reply || next[agentIdx]?.content || '',
+          reasoning: data!.reasoning,
+          sentiment: data!.sentiment as ConversationMessage['sentiment'],
+          candidateRead: data!.candidateRead,
+          nextStrategy: data!.nextStrategy,
+          riskFlags: data!.riskFlags,
+          responseCategory: data!.responseCategory as ConversationMessage['responseCategory'],
           timestamp: Date.now(),
         }
         return next
@@ -307,10 +445,12 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
       setStage(data.stage)
       setLastSignal(data.signalDetected || '')
       setWarmth(prev => {
-        if (data.sentiment === 'warm' || data.sentiment === 'interested') return Math.min(95, prev + 15)
-        if (data.sentiment === 'cold' || data.sentiment === 'disengaged') return Math.max(5, prev - 20)
-        if (data.responseCategory === 'hostile') return Math.max(5, prev - 30)
-        return prev
+        const next = data!.sentiment === 'warm' || data!.sentiment === 'interested' ? Math.min(95, prev + 15)
+          : data!.sentiment === 'cold' || data!.sentiment === 'disengaged' ? Math.max(5, prev - 20)
+          : data!.responseCategory === 'hostile' ? Math.max(5, prev - 30)
+          : prev
+        setWarmthHistory(h => [...h, next])
+        return next
       })
       if (
         data.sentiment === 'cold' ||
@@ -321,12 +461,11 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
       }
       if (data.candidateRead) setKeyConcern(data.candidateRead)
 
-      // Deterministic escalation rules — pure TypeScript, no LLM call
       const isNegative = data.sentiment === 'cold' || data.responseCategory === 'hostile'
       setConsecutiveNegatives(prev => {
         const next = isNegative ? prev + 1 : 0
         if (next >= 2) setEscalationMode(true)
-        else if (!isNegative && data.sentiment === 'warm') setEscalationMode(false)
+        else if (!isNegative && data!.sentiment === 'warm') setEscalationMode(false)
         return next
       })
     } catch (e) {
@@ -344,10 +483,13 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
       setLoading(false)
       setStreamingIdx(null)
       setWaitSeconds(null)
+      setIsThinkingPhase(false)
     }
   }
 
   const isStreaming = streamingIdx !== null
+  const agentMessageCount = messages.filter(m => m.role === 'agent' && !m.content.startsWith('__error__')).length
+  const showBriefButton = agentMessageCount >= 2
 
   return (
     <div className="page-container max-w-6xl flex flex-col min-h-[calc(100vh-4rem)]">
@@ -450,8 +592,22 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
 
                     <div className={cn('max-w-[75%] space-y-1', msg.role === 'candidate' && 'items-end flex flex-col')}>
                       <p className="text-xs text-muted-foreground">
-                        {msg.role === 'agent' ? personality.name : 'You'}
+                        {msg.role === 'agent' ? personality.name : (persona?.name || 'You')}
                       </p>
+
+                      {/* Live thinking panel — visible while agent is reasoning before first word */}
+                      {isStreaming && streamingIdx === i && isThinkingPhase && liveThinking && (
+                        <div className="rounded-lg border border-border bg-muted/40 p-3 mb-1 max-w-full">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <Brain className="w-3 h-3 text-muted-foreground animate-pulse" />
+                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Thinking...</span>
+                          </div>
+                          <p className="text-[11px] font-mono text-muted-foreground leading-relaxed break-words">
+                            {liveThinking.length > 380 ? '…' + liveThinking.slice(-380) : liveThinking}
+                          </p>
+                        </div>
+                      )}
+
                       {msg.role === 'agent' && msg.content.startsWith('__error__') ? (
                         <div className="rounded-lg px-4 py-3 text-sm border border-destructive/40 bg-destructive/5 text-destructive space-y-2">
                           <p>{msg.content.slice(9) || 'Something went wrong.'}</p>
@@ -467,17 +623,20 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
                           </button>
                         </div>
                       ) : (
-                      <div className={cn(
-                        'rounded-lg px-4 py-3 text-sm leading-relaxed',
-                        msg.role === 'agent' ? 'bg-muted' : 'bg-foreground text-background',
-                      )}>
-                        <p className="whitespace-pre-wrap">
-                          {msg.content}
-                          {isStreaming && streamingIdx === i && (
-                            <span className="inline-block w-0.5 h-4 ml-0.5 bg-current animate-pulse align-middle" />
-                          )}
-                        </p>
-                      </div>
+                        // Hide the empty bubble during thinking phase so only the thinking panel shows
+                        (!isThinkingPhase || msg.content || !(isStreaming && streamingIdx === i)) && (
+                          <div className={cn(
+                            'rounded-lg px-4 py-3 text-sm leading-relaxed',
+                            msg.role === 'agent' ? 'bg-muted' : 'bg-foreground text-background',
+                          )}>
+                            <p className="whitespace-pre-wrap">
+                              {msg.content}
+                              {isStreaming && streamingIdx === i && !isThinkingPhase && (
+                                <span className="inline-block w-0.5 h-4 ml-0.5 bg-current animate-pulse align-middle" />
+                              )}
+                            </p>
+                          </div>
+                        )
                       )}
 
                       {msg.role === 'agent' && msg.responseCategory && msg.responseCategory !== 'expected' && (
@@ -608,14 +767,99 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
           )}
         </div>
 
-        <aside className="lg:w-72 shrink-0 space-y-4 hidden lg:block">
+        <aside className="w-full lg:w-72 shrink-0 space-y-4">
+          {/* Candidate persona */}
+          <div className="panel p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                <UserCircle className="w-3.5 h-3.5" />
+                Candidate
+              </h3>
+              {!persona && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={generatePersona}
+                  disabled={generatingPersona}
+                  className="h-6 text-[11px] px-2"
+                >
+                  {generatingPersona ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Generate'}
+                </Button>
+              )}
+            </div>
+            {persona ? (
+              <div className="space-y-2">
+                <div>
+                  <p className="text-sm font-medium">{persona.name}</p>
+                  <p className="text-xs text-muted-foreground">{persona.currentRole} · {persona.currentCompany}</p>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">{persona.background}</p>
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {persona.likelyConcerns.map((c, i) => (
+                    <Badge key={i} variant="secondary" className="text-[10px]">{c}</Badge>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs text-muted-foreground">Tone</span>
+                  <Badge variant="outline" className="text-[10px] capitalize">{persona.tone}</Badge>
+                </div>
+                <button
+                  type="button"
+                  onClick={generatePersona}
+                  disabled={generatingPersona}
+                  className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 mt-1 disabled:opacity-50"
+                >
+                  {generatingPersona ? 'Regenerating…' : 'Regenerate'}
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic leading-relaxed">
+                Generate a fictional candidate profile to guide your roleplay.
+              </p>
+            )}
+          </div>
+
           <CandidateMemoryPanel
             warmth={warmth}
             objectionCount={objectionCount}
             keyConcern={keyConcern}
             stage={stage}
             escalationMode={escalationMode}
+            warmthHistory={warmthHistory}
           />
+
+          {/* Handoff brief — appears after 2 agent replies */}
+          {showBriefButton && (
+            <div className="panel p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5" />
+                  Handoff Brief
+                </h3>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={generateBrief}
+                  disabled={generatingBrief}
+                  className="h-6 text-[11px] px-2"
+                >
+                  {generatingBrief
+                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                    : handoffBrief ? 'Refresh' : 'Generate'}
+                </Button>
+              </div>
+              {handoffBrief ? (
+                <div className="text-xs leading-relaxed max-h-72 overflow-y-auto overflow-x-hidden">
+                  <BriefRenderer text={handoffBrief} />
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic leading-relaxed">
+                  Generate a structured brief for your discovery call.
+                </p>
+              )}
+            </div>
+          )}
+
           <CompanyContextCard config={agentConfig} />
         </aside>
       </div>

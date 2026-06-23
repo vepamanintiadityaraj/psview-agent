@@ -44,6 +44,15 @@ export interface AgentConfig {
   evalCriteria?: { label: string; pass: boolean }[]
 }
 
+export interface CandidatePersona {
+  name: string
+  currentRole: string
+  currentCompany: string
+  background: string
+  likelyConcerns: string[]
+  tone: 'direct' | 'skeptical' | 'friendly' | 'busy' | 'curious'
+}
+
 export interface ConversationMessage {
   role: 'agent' | 'candidate'
   content: string

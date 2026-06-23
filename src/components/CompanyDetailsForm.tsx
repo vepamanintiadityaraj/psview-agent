@@ -338,9 +338,8 @@ export default function CompanyDetailsForm({
           className="mb-2"
         />
         <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Formal</span>
-          <span>{toneLabel(context.tone)}</span>
-          <span>Casual</span>
+          <span>Very Formal</span>
+          <span>Very Casual</span>
         </div>
       </div>
 
