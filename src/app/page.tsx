@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import AppShell from '@/components/AppShell'
 import CompanyForm from '@/components/CompanyForm'
 import AgentProfile from '@/components/AgentProfile'
@@ -18,10 +18,35 @@ const STEPS: { id: Step; label: string; num: number }[] = [
   { id: 'simulate', label: 'Simulate', num: 3 },
 ]
 
+const SESSION_KEY = 'psview_session'
+
 export default function Home() {
   const [step, setStep] = useState<Step>('onboard')
   const [companyContext, setCompanyContext] = useState<CompanyContext | null>(null)
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null)
+  const [hydrated, setHydrated] = useState(false)
+
+  // Restore session on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY)
+      if (raw) {
+        const s = JSON.parse(raw)
+        if (s.companyContext) setCompanyContext(s.companyContext)
+        if (s.agentConfig) setAgentConfig(s.agentConfig)
+        if (s.step) setStep(s.step)
+      }
+    } catch {}
+    setHydrated(true)
+  }, [])
+
+  // Persist session on every change (skip until hydrated to avoid overwriting with defaults)
+  useEffect(() => {
+    if (!hydrated) return
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ step, companyContext, agentConfig }))
+    } catch {}
+  }, [step, companyContext, agentConfig, hydrated])
 
   return (
     <AppShell>
