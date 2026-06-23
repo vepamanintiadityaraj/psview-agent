@@ -144,6 +144,8 @@ public/
 
 ## Drawbacks & known limitations
 
+**Session persistence.** Company context, agent config, and current step are saved to `localStorage` on every state change and restored on mount. Refreshing the page returns you exactly where you left off — same agent, same company, same step. Note: sessions are browser-local and not shareable across devices.
+
 **In-memory rate limiter.** The 30 req/min limiter lives in a `Map` on the server process. It resets on server restart and doesn't work across multiple instances. A real production deployment would use Redis or an edge KV store.
 
 **LinkedIn research is inconsistent.** Claude's web search tool returns inconsistent results for LinkedIn company pages depending on the company's public profile completeness. Culture and values are frequently missing — the AI suggestions feature exists specifically because of this.
