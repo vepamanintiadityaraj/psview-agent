@@ -492,7 +492,7 @@ export default function ConversationSimulator({ agentConfig, onBack }: Props) {
     }
   }
 
-  const avatarSrc = personality.gender === 'female' ? '/avatars/female.jpg' : '/avatars/male.jpg'
+  const avatarSrc = personality.gender === 'female' ? '/avatars/female.png' : '/avatars/male.png'
   const [avatarError, setAvatarError] = useState(false)
 
   const isStreaming = streamingIdx !== null

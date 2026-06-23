@@ -75,7 +75,7 @@ export default function AgentProfile({ agentConfig, onSimulate, onBack }: Props)
   const [showReasoning, setShowReasoning] = useState(false)
   const [expandedMsg, setExpandedMsg] = useState<string | null>(messageSequence[0]?.id ?? null)
   const [avatarError, setAvatarError] = useState(false)
-  const avatarSrc = personality.gender === 'female' ? '/avatars/female.jpg' : '/avatars/male.jpg'
+  const avatarSrc = personality.gender === 'female' ? '/avatars/female.png' : '/avatars/male.png'
   const handleAvatarError = useCallback(() => setAvatarError(true), [])
 
   const tabs: { id: ProfileTab; label: string }[] = [
